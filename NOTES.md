@@ -31,6 +31,6 @@
 - **QR codes**: segno module matrix with a 2-module quiet zone, scaled by a whole number of
   dots per module (nearest neighbor) so modules stay crisp; under 2 dots per module is refused.
   Placed left of the text on wide labels, above it on tall ones. Decoded with OpenCV from the
-  preview and printed on a 40x30 label.
+  preview, and the printed 40x30 label scans with a phone.
 - **Text wrapping**: text without explicit line breaks is tried at every wrap width (never
   splitting words) and the layout with the largest font wins.
