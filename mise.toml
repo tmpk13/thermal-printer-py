@@ -6,6 +6,16 @@ run = "uv run -q --no-project --with pytest --with pillow pytest -q --tb=short t
 description = "Print text or an image: mise run print -- 'Hello' | -- -i logo.png"
 run = "python3 tprint.py"
 
+[tasks.print-bt]
+description = "Print over Bluetooth, finding the printer automatically: mise r print-bt -- 'Hello'"
+run = """
+find() { bluetoothctl devices | grep -m1 -oE '([0-9A-F]{2}:){5}[0-9A-F]{2} T0[0-9]' | cut -d' ' -f1; }
+addr=$(find)
+[ -n "$addr" ] || { bluetoothctl --timeout 10 scan on >/dev/null 2>&1; addr=$(find); }
+[ -n "$addr" ] || { echo "printer not found over Bluetooth; is it on?" >&2; exit 1; }
+TPRINT_BT=$addr python3 tprint.py
+"""
+
 [tasks.status]
 description = "Show printer and label status"
 run = "python3 tprint.py --status"

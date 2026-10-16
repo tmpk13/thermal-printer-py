@@ -20,6 +20,7 @@ python3 tprint.py -i logo.png -d 6        # image, darker burn
 echo "Box 12" | python3 tprint.py -r      # stdin, text along the feed
 python3 tprint.py -s 40x30 -p out.png Hi  # preview only, no printer needed
 python3 tprint.py -b A4:93:40:05:6A:13 Hi # over Bluetooth (TPRINT_BT=addr also works)
+mise r print-bt -- "Hi"                   # Bluetooth, printer found automatically
 python3 tprint.py --status
 TPRINT_DEBUG=1 python3 tprint.py ...      # trace frames on stderr
 mise run test
