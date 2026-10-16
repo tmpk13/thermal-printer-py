@@ -10,6 +10,10 @@ run = "python3 tprint.py"
 description = "Show printer and label status"
 run = "python3 tprint.py --status"
 
+[tasks.scan]
+description = "Scan for the printer over Bluetooth (name starts with T0)"
+run = "bluetoothctl --timeout 10 scan on | grep -E ' T0[0-9]'"
+
 [tasks.udev]
 description = "Install the udev rule granting user access to the printer (sudo)"
 run = "sudo install -m 644 70-supvan.rules /etc/udev/rules.d/ && sudo udevadm control --reload && sudo udevadm trigger"

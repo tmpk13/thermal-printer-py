@@ -47,9 +47,9 @@ def test_print_buffers_header_and_checksum():
         assert struct.unpack_from("<H", b)[0] == csum & 0xFFFF
 
 
-def test_pack_blocks_small_page_is_one_block():
+def test_pack_per_buffer_small_page_is_one_block():
     bufs = tp.print_buffers(bytes(tp.BPL * 240))
-    blocks, speed = tp.pack_blocks(bufs)
+    blocks, speed = tp.pack_per_buffer(bufs)
     assert len(blocks) == 1 and speed == 60
     assert lzma.decompress(blocks[0], format=lzma.FORMAT_ALONE) == b"".join(bufs)
 
@@ -58,3 +58,63 @@ def test_render_text_fits_label():
     img = tp.render_text("Hello\nWorld", 320, 240)
     assert img.size == (320, 240)
     assert img.convert("L").getextrema() == (0, 255)  # has ink and margin
+
+
+def test_bt_frame_layout():
+    f = tp.bt_frame(tp.CMD_CHECK)
+    assert f == bytes.fromhex("7e5a0c001001aa1201000001") + bytes(4)
+    f = tp.bt_frame(tp.CMD_BULK, 512, 3)
+    assert f[7] == tp.CMD_BULK and f[12:16] == bytes([0x00, 0x02, 0x03, 0x00])
+    assert struct.unpack_from("<H", f, 8)[0] == sum(f[10:16])
+
+
+def test_bt_data_frames():
+    blk = bytes([0x42]) * 1100
+    frames = tp.bt_data_frames(blk)
+    assert len(frames) == 3 and all(len(f) == 512 for f in frames)
+    f = frames[2]
+    assert f[:6] == bytes.fromhex("7e5afc011002") and f[6:8] == b"\xaa\xbb"
+    assert f[10:12] == bytes([2, 3])
+    assert f[12:112] == bytes([0x42]) * 100 and f[112:] == bytes(400)
+    assert struct.unpack_from("<H", f, 8)[0] == sum(f[10:]) & 0xFFFF
+    assert b"".join(fr[12:] for fr in frames)[:1100] == blk
+
+
+def test_pack_grouped_limits_blocks_and_picks_speed():
+    import random
+    rng = random.Random(1)
+    dither = bytes(sum(1 << k for k in range(8) if rng.random() < 0.25) for _ in range(tp.BPL * 400))
+    bufs = tp.print_buffers(dither)
+    blocks, speed = tp.pack_grouped(bufs)
+    assert len(blocks) > 1 and all(len(b) <= tp.BUF_SIZE for b in blocks)
+    joined = b"".join(lzma.decompress(b, format=lzma.FORMAT_ALONE) for b in blocks)
+    assert joined == b"".join(bufs) and speed <= 20  # dense halftone prints slowly
+    blocks, speed = tp.pack_grouped(tp.print_buffers(bytes(tp.BPL * 400)))
+    assert len(blocks) == 2 and speed == 60  # blank page: 4 buffers per block
+
+
+class FakeLink(tp.Printer):
+    """Scripted printer: idle, then printing after START, then idle once data is committed."""
+    ST = 1
+
+    def __init__(self):
+        self.log, self.printing, self.blocks = [], False, []
+
+    def cmd(self, cmd, p=0, p2=None):
+        self.log.append(cmd)
+        if cmd == tp.CMD_START:
+            self.printing = True
+        if cmd == tp.CMD_BUF_FULL and len(self.blocks) == 1:
+            self.printing = False
+        return bytes([0, 0, 0, 0x40 if self.printing else 0, 0])
+
+    def send_block(self, blk):
+        self.blocks.append(blk)
+
+
+def test_print_flow_order():
+    link = FakeLink()
+    link.print_image(Image.new("1", (320, 240), 0))
+    cmds = [c for c in link.log if c != tp.CMD_STATUS]
+    assert cmds == [tp.CMD_CHECK, tp.CMD_START, tp.CMD_BUF_FULL]
+    assert len(link.blocks) == 1

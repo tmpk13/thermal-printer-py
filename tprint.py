@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Print text or images to a Supvan T50 Pro thermal label printer over USB HID."""
+"""Print text or images to a Supvan T50 Pro thermal label printer over USB or Bluetooth."""
 import argparse
+import contextlib
 import ctypes as C
 import glob
 import os
 import select
+import socket
 import struct
 import sys
 import time
@@ -19,10 +21,13 @@ CMD_BUF_FULL, CMD_STATUS, CMD_CHECK, CMD_START, CMD_STOP = 0x10, 0x11, 0x12, 0x1
 CMD_MATERIAL, CMD_BULK = 0x30, 0x5C
 # Pillow "1" rows are MSB-first with 1 = white; the head wants LSB-first with 1 = burn.
 PACK = bytes(int(f"{i ^ 0xFF:08b}"[::-1], 2) for i in range(256))
-ERRORS = {(1, 0x02): "label read/write error", (1, 0x04): "label roll end",
-          (1, 0x08): "label mode mismatch", (1, 0x10): "ribbon read/write error",
-          (1, 0x20): "ribbon end", (2, 0x08): "printhead too hot",
-          (3, 0x08): "cover open", (4, 0x01): "no label installed"}
+# Status register bits: (byte within the MSTA/FSTA block, mask) -> error.
+ERRORS = {(0, 0x02): "label read/write error", (0, 0x04): "label roll end",
+          (0, 0x08): "label mode mismatch", (0, 0x10): "ribbon read/write error",
+          (0, 0x20): "ribbon end", (1, 0x08): "printhead too hot",
+          (2, 0x08): "cover open", (3, 0x01): "no label installed"}
+# BUF_FULL speed (roughly mm/s) by compressed bytes per buffer, densest first.
+SPEED_STEPS = [(3000, 10), (2800, 15), (2500, 20), (2000, 25), (1500, 40), (1000, 45), (500, 55)]
 
 
 class LzmaOptions(C.Structure):
@@ -84,8 +89,8 @@ def print_buffers(data: bytes, density: int = 4) -> list[bytes]:
     return out
 
 
-def pack_blocks(buffers: list[bytes]) -> tuple[list[bytes], int]:
-    """Whole page in one block when it compresses small, else one block per buffer."""
+def pack_per_buffer(buffers: list[bytes]) -> tuple[list[bytes], int]:
+    """USB: whole page in one block when it compresses small, else one block per buffer."""
     singles = [lzma_block(b) for b in buffers]
     if sum(map(len, singles)) <= 4000:
         whole = lzma_block(b"".join(buffers))
@@ -94,10 +99,99 @@ def pack_blocks(buffers: list[bytes]) -> tuple[list[bytes], int]:
     return singles, 60 if len(singles) == 1 else 20
 
 
+def pack_grouped(buffers: list[bytes]) -> tuple[list[bytes], int]:
+    """Bluetooth: up to 4 buffers per block, fewer until it compresses to one buffer."""
+    blocks, speed, rest = [], 60, buffers
+    while rest:
+        take = min(4, len(rest))
+        while len(z := lzma_block(b"".join(rest[:take]))) > BUF_SIZE:
+            if take == 1:
+                raise ValueError("print buffer does not compress into one block")
+            take -= 1
+        per_buf = len(z) // take
+        speed = min(speed, next((s for n, s in SPEED_STEPS if per_buf > n), 60))
+        blocks.append(z)
+        rest = rest[take:]
+    return blocks, speed
+
+
+def bt_frame(cmd: int, p: int = 0, p2: int = 0) -> bytes:
+    """16-byte RFCOMM command: magic, length 12, proto, marker, cmd, checksum, LE params."""
+    f = bytearray(struct.pack("<2sHBBBBHBBHH", b"\x7e\x5a", 12, 0x10, 1, 0xAA, cmd, 0, 0, 1, p, p2))
+    struct.pack_into("<H", f, 8, sum(f[10:]) & 0xFFFF)
+    return bytes(f)
+
+
+def bt_data_frames(blk: bytes) -> list[bytes]:
+    """Split a compressed block into 512-byte frames, each one AA BB packet of 500 bytes."""
+    chunks = [blk[i:i + 500] for i in range(0, len(blk), 500)]
+    out = []
+    for i, chunk in enumerate(chunks):
+        body = bytes([i, len(chunks)]) + chunk.ljust(500, b"\0")
+        pkt = b"\xaa\xbb" + struct.pack("<H", sum(body) & 0xFFFF) + body
+        out.append(b"\x7e\x5a" + struct.pack("<H", 508) + b"\x10\x02" + pkt)
+    return out
+
+
 class Printer:
+    """Print flow shared by both links; subclasses supply framing and timing."""
+    ST = MAT = START = 0  # status offset, material width offset, START_PRINT param
+    PRE_COMMIT, POST_COMMIT = 0.0, 0.0
+    pack = staticmethod(pack_per_buffer)
+
+    def cmd(self, cmd: int, p: int = 0, p2: int | None = None) -> bytes:
+        raise NotImplementedError
+
+    def send_block(self, blk: bytes):
+        raise NotImplementedError
+
+    def status(self) -> dict:
+        r = self.cmd(CMD_STATUS)[self.ST:self.ST + 4]
+        if len(r) < 4:
+            raise IOError("short status reply")
+        if errs := [msg for (i, bit), msg in ERRORS.items() if r[i] & bit]:
+            raise RuntimeError(", ".join(errs))
+        return {"buf_full": bool(r[0] & 1), "busy": bool(r[1] & 4), "printing": bool(r[2] & 0x40)}
+
+    def label_mm(self) -> tuple[int, int]:
+        """(width, length) of the loaded label in mm, (0, 0) if unknown."""
+        r = self.cmd(CMD_MATERIAL)
+        return (r[self.MAT], r[self.MAT + 1]) if len(r) > self.MAT + 1 else (0, 0)
+
+    def _wait(self, what: str, cond, timeout: float, interval: float = 0.1):
+        end = time.monotonic() + timeout
+        while not cond(self.status()):
+            if time.monotonic() > end:
+                raise TimeoutError(f"timed out waiting for {what}")
+            time.sleep(interval)
+
+    def print_image(self, img: Image.Image, density: int = 4):
+        blocks, speed = self.pack(print_buffers(to_head(img), density))
+        self.cmd(CMD_CHECK)
+        self._wait("idle", lambda s: not s["busy"] and not s["printing"], 6)
+        self.cmd(CMD_START, self.START)
+        try:
+            self._wait("print start", lambda s: s["printing"], 6)
+            for blk in blocks:
+                self._wait("buffer space", lambda s: not s["buf_full"], 15, 0.02)
+                self.send_block(blk)
+                time.sleep(self.PRE_COMMIT)
+                self.cmd(CMD_BUF_FULL, len(blk), speed)
+                time.sleep(self.POST_COMMIT)
+            self._wait("print end", lambda s: not s["printing"] and not s["busy"], 30)
+        except BaseException:
+            with contextlib.suppress(Exception):  # keep the original error
+                self.cmd(CMD_STOP)
+            raise
+
+
+class UsbPrinter(Printer):
+    """USB HID: 8-byte big-endian commands in 64-byte reports, 64-byte replies."""
+    ST, MAT, START = 1, 19, 1
+    PRE_COMMIT, POST_COMMIT = 0.15, 0.1
+
     def __init__(self, path: str | None = None):
-        path = path or find_hidraw()
-        self.fd = os.open(path, os.O_RDWR | os.O_NONBLOCK)
+        self.fd = os.open(path or find_hidraw(), os.O_RDWR | os.O_NONBLOCK)
 
     def _write(self, data: bytes):
         # Leading 0x00 is the report ID; without it hidraw eats a leading zero byte.
@@ -114,58 +208,95 @@ class Printer:
 
     def cmd(self, cmd: int, p: int = 0, p2: int | None = None) -> bytes:
         frame = bytes([0xC0, 0x40, p >> 8, p & 0xFF, cmd, 0, 8, 0])
+        debug("tx", frame)
         self._drain()
         self._write(frame + (struct.pack(">H", p2) if p2 is not None else b""))
         if (r := self._read()) is None:
             raise TimeoutError(f"no response to command 0x{cmd:02x}")
+        debug("rx", r)
         return r
 
-    def status(self) -> dict:
-        r = self.cmd(CMD_STATUS)
-        if errs := [msg for (i, bit), msg in ERRORS.items() if r[i] & bit]:
-            raise RuntimeError(", ".join(errs))
-        return {"buf_full": bool(r[1] & 1), "busy": bool(r[2] & 4), "printing": bool(r[3] & 0x40)}
+    def send_block(self, blk: bytes):
+        self.cmd(CMD_BULK, len(blk))
+        self._drain()
+        for i in range(0, len(blk), 64):
+            self._write(blk[i:i + 64])
+        self._read()
 
-    def label_mm(self) -> tuple[int, int]:
-        """(width, length) of the loaded label in mm, (0, 0) if unknown."""
-        r = self.cmd(CMD_MATERIAL)
-        return (r[19], r[20]) if len(r) > 20 else (0, 0)
 
-    def _wait(self, what: str, cond, timeout: float, interval: float = 0.1):
-        end = time.monotonic() + timeout
-        while not cond(self.status()):
-            if time.monotonic() > end:
-                raise TimeoutError(f"timed out waiting for {what}")
-            time.sleep(interval)
+class BtPrinter(Printer):
+    """Bluetooth Classic RFCOMM: 16-byte little-endian 7E 5A frames, variable replies."""
+    ST, MAT, START = 14, 40, 0
+    PRE_COMMIT = 0.02
+    pack = staticmethod(pack_grouped)
 
-    def print_image(self, img: Image.Image, density: int = 4):
-        blocks, speed = pack_blocks(print_buffers(to_head(img), density))
-        self.cmd(CMD_CHECK)
-        self._wait("idle", lambda s: not s["busy"] and not s["printing"], 6)
-        self.cmd(CMD_START, 1)
+    def __init__(self, addr: str, channel: int = 1):
+        self.sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM,  # pyright: ignore
+                                  socket.BTPROTO_RFCOMM)  # pyright: ignore
+        self.sock.settimeout(10)
+        self.sock.connect((addr, channel))
+        self.buf = b""
+
+    def _drain(self):
+        self.sock.setblocking(False)
         try:
-            self._wait("print start", lambda s: s["printing"], 6)
-            for blk in blocks:
-                self._wait("buffer space", lambda s: not s["buf_full"], 15, 0.02)
-                self.cmd(CMD_BULK, len(blk))
+            while self.sock.recv(1024):
+                pass
+        except BlockingIOError:
+            pass
+        finally:
+            self.sock.settimeout(2)
+            self.buf = b""
+
+    def _read(self) -> bytes:
+        """Next reply frame, resyncing on the 7E 5A magic; empty on timeout."""
+        try:
+            while True:
+                i = self.buf.find(b"\x7e\x5a")
+                if i >= 0 and len(self.buf) >= i + 4:
+                    end = i + 4 + struct.unpack_from("<H", self.buf, i + 2)[0]
+                    if len(self.buf) >= end:
+                        frame, self.buf = self.buf[i:end], self.buf[end:]
+                        debug("rx", frame)
+                        return frame
+                if not (chunk := self.sock.recv(512)):
+                    return b""
+                self.buf += chunk
+        except TimeoutError:
+            return b""
+
+    def cmd(self, cmd: int, p: int = 0, p2: int | None = None) -> bytes:
+        self._drain()
+        frame = bt_frame(cmd, p, p2 or 0)
+        debug("tx", frame)
+        self.sock.sendall(frame)
+        while r := self._read():  # skip stray frames that echo another command
+            if len(r) >= 8 and r[7] == cmd:
+                return r
+        raise TimeoutError(f"no response to command 0x{cmd:02x}")
+
+    def send_block(self, blk: bytes):
+        frames = bt_data_frames(blk)
+        self.cmd(CMD_BULK, 512, len(frames))
+        for i, frame in enumerate(frames):
+            for j in range(0, len(frame), 128):  # the firmware wants 128-byte writes, 10 ms apart
+                time.sleep(0.01)
                 self._drain()
-                for i in range(0, len(blk), 64):
-                    self._write(blk[i:i + 64])
+                self.sock.sendall(frame[j:j + 128])
+            if i < len(frames) - 1:  # the last ack only comes once the block is digested
                 self._read()
-                time.sleep(0.15)
-                self.cmd(CMD_BUF_FULL, len(blk), speed)
-                time.sleep(0.1)
-            self._wait("print end", lambda s: not s["printing"] and not s["busy"], 30)
-        except BaseException:
-            self.cmd(CMD_STOP)
-            raise
+
+
+def debug(tag: str, data: bytes):
+    if os.environ.get("TPRINT_DEBUG"):
+        print(f"{time.monotonic():.3f} {tag} {data[:48].hex(' ')}", file=sys.stderr)
 
 
 def find_hidraw() -> str:
     for uevent in glob.glob("/sys/class/hidraw/*/device/uevent"):
         if HID_ID in open(uevent).read():
             return "/dev/" + uevent.split("/")[4]
-    raise FileNotFoundError("Supvan printer (1820:207f) not found")
+    raise FileNotFoundError("Supvan printer (1820:207f) not found on USB")
 
 
 def render_text(text: str, w: int, h: int, margin: int = 8) -> Image.Image:
@@ -206,14 +337,23 @@ def main():
     ap.add_argument("-d", "--density", type=int, default=4, help="burn density 0-15 (4)")
     ap.add_argument("-r", "--rotate", action="store_true", help="run content along the feed")
     ap.add_argument("-p", "--preview", help="save the rendered label as PNG instead of printing")
+    ap.add_argument("-b", "--bt", metavar="ADDR", default=os.environ.get("TPRINT_BT"),
+                    help="print over Bluetooth to this address (env TPRINT_BT)")
     ap.add_argument("--status", action="store_true", help="show printer and label status")
     a = ap.parse_args()
 
+    printer = None
+
+    def connect() -> Printer:
+        nonlocal printer
+        printer = printer or (BtPrinter(a.bt) if a.bt else UsbPrinter())
+        return printer
+
     if a.status:
-        p = Printer()
+        p = connect()
         print(p.status(), "label %dx%d mm" % p.label_mm())
         return
-    w_mm, h_mm = map(int, a.size.lower().split("x")) if a.size else Printer().label_mm()
+    w_mm, h_mm = map(int, a.size.lower().split("x")) if a.size else connect().label_mm()
     w_mm, h_mm = min(w_mm or 40, HEAD_DOTS // DOTS_PER_MM), h_mm or 30
     w, h = w_mm * DOTS_PER_MM, h_mm * DOTS_PER_MM
     if a.rotate:
@@ -228,7 +368,7 @@ def main():
     if a.preview:
         img.save(a.preview)
     else:
-        Printer().print_image(img, a.density)
+        connect().print_image(img, a.density)
 
 
 if __name__ == "__main__":
