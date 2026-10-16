@@ -1,0 +1,2 @@
+# Supvan T50 Pro label printer: let logged-in users open its hidraw node
+KERNEL=="hidraw*", ATTRS{idVendor}=="1820", ATTRS{idProduct}=="207f", MODE="0660", TAG+="uaccess"

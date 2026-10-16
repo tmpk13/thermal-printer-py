@@ -1,0 +1,15 @@
+[tasks.test]
+description = "Run unit tests"
+run = "uv run -q --no-project --with pytest --with pillow pytest -q --tb=short tests"
+
+[tasks.print]
+description = "Print text or an image: mise run print -- 'Hello' | -- -i logo.png"
+run = "python3 tprint.py"
+
+[tasks.status]
+description = "Show printer and label status"
+run = "python3 tprint.py --status"
+
+[tasks.udev]
+description = "Install the udev rule granting user access to the printer (sudo)"
+run = "sudo install -m 644 70-supvan.rules /etc/udev/rules.d/ && sudo udevadm control --reload && sudo udevadm trigger"
