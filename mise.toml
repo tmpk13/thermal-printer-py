@@ -12,7 +12,11 @@ run = "python3 tprint.py --status"
 
 [tasks.scan]
 description = "Scan for the printer over Bluetooth (name starts with T0)"
-run = "bluetoothctl --timeout 10 scan on | grep -E ' T0[0-9]'"
+# Scan silently: bluetoothctl prints only devices new to it, and 5.72 can segfault on exit.
+run = """
+bluetoothctl --timeout 10 scan on >/dev/null 2>&1 || true
+bluetoothctl devices | grep -E ' T0[0-9]' || { echo "printer not found; is it on?" >&2; exit 1; }
+"""
 
 [tasks.udev]
 description = "Install the udev rule granting user access to the printer (sudo)"

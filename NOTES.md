@@ -22,3 +22,7 @@
   command; one early test print failed on a reply mismatch that did not recur.
 - **No link-speed measurement**: the reference caps print speed by measured Bluetooth throughput
   so dense images do not stripe; this script uses the density rule only, fine for text.
+- **Scan task**: `bluetoothctl scan on` prints only devices it has not seen before, so piping it
+  to grep misses a cached printer; bluetoothctl 5.72 can also segfault on `--timeout` exit. The
+  task scans silently, then greps `bluetoothctl devices`. Under dash the redirect on the command
+  also hides the crash message (bash would still print it).
