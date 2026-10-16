@@ -118,3 +118,50 @@ def test_print_flow_order():
     cmds = [c for c in link.log if c != tp.CMD_STATUS]
     assert cmds == [tp.CMD_CHECK, tp.CMD_START, tp.CMD_BUF_FULL]
     assert len(link.blocks) == 1
+
+
+def test_render_qr_modules_match_matrix():
+    import segno
+    img = tp.render_qr("https://example.com", 224)
+    qr = segno.make("https://example.com", error="m")
+    m = qr.symbol_size(border=0)[0]
+    scale = img.width // (m + 4)
+    assert img.width == img.height == (m + 4) * scale and scale >= 2
+    for y, row in enumerate(qr.matrix):
+        for x, v in enumerate(row):
+            px = img.getpixel(((x + 2) * scale + scale // 2, (y + 2) * scale + scale // 2))
+            assert (px == 0) == bool(v)
+
+
+def test_render_qr_rejects_data_too_long():
+    import pytest
+    with pytest.raises(ValueError):
+        tp.render_qr("x" * 500, 100)
+
+
+def test_qr_label_layouts():
+    wide = tp.render_qr_label("hello", "Box 12", 320, 240)
+    assert wide.size == (320, 240)
+    left, right = wide.crop((0, 0, 160, 240)), wide.crop((240, 0, 320, 240))
+    assert left.convert("L").getextrema()[0] == 0  # QR on the left
+    assert right.convert("L").getextrema()[0] == 0  # text on the right
+    tall = tp.render_qr_label("hello", "Box 12", 240, 400)
+    assert tall.crop((0, 300, 240, 400)).convert("L").getextrema()[0] == 0  # text below
+    alone = tp.render_qr_label("hello", "", 320, 240)
+    bbox = Image.eval(alone.convert("L"), lambda v: 255 - v).getbbox()
+    assert bbox is not None and abs((bbox[0] + bbox[2]) / 2 - 160) <= 8  # centered
+
+
+def test_render_text_wraps_in_narrow_area():
+    narrow = tp.render_text("three short words", 100, 240)
+    ink = Image.eval(narrow.convert("L"), lambda v: 255 - v).getbbox()
+    assert ink is not None and ink[3] - ink[1] > 60  # wrapped over several lines
+
+
+def test_render_text_never_splits_words(monkeypatch):
+    seen = []
+    real = tp.ImageDraw.ImageDraw.multiline_text
+    monkeypatch.setattr(tp.ImageDraw.ImageDraw, "multiline_text",
+                        lambda self, xy, text, **kw: (seen.append(text), real(self, xy, text, **kw)))
+    tp.render_text("Supvan driver", 90, 240)
+    assert seen == ["Supvan\ndriver"]

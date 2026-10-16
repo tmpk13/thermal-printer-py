@@ -5,3 +5,5 @@
 - Text rendering auto-fit to label, image dithering, preview, rotate, density
 - Label size read from the printer
 - Mirroring fix: text verified correct on paper over Bluetooth and USB
+- QR code with text on the same label; word-wrapping text fit
+- `print-bt` and `scan` mise tasks

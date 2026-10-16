@@ -1,5 +1,11 @@
-#!/usr/bin/env python3
-"""Print text or images to a Supvan T50 Pro thermal label printer over USB or Bluetooth."""
+#!/usr/bin/env -S uv run -q --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["pillow", "segno"]
+# [tool.uv]
+# python-preference = "only-system"  # uv-managed Pythons lack Bluetooth sockets
+# ///
+"""Print text, QR codes or images to a Supvan T50 Pro label printer over USB or Bluetooth."""
 import argparse
 import contextlib
 import ctypes as C
@@ -9,8 +15,10 @@ import select
 import socket
 import struct
 import sys
+import textwrap
 import time
 
+import segno
 from PIL import Image, ImageDraw, ImageFont
 
 HID_ID = "HID_ID=0003:00001820:0000207F"
@@ -304,7 +312,11 @@ def find_hidraw() -> str:
 
 
 def render_text(text: str, w: int, h: int, margin: int = 8) -> Image.Image:
-    """Largest font size whose text block fits inside the label, centered."""
+    """Largest font whose text block fits inside w x h, centered.
+
+    Text without explicit line breaks is also tried wrapped at every width, so long
+    text in a narrow area wraps instead of shrinking.
+    """
     img = Image.new("1", (w, h), 1)
     draw = ImageDraw.Draw(img)
 
@@ -314,14 +326,55 @@ def render_text(text: str, w: int, h: int, margin: int = 8) -> Image.Image:
         except OSError:
             return ImageFont.load_default(size)
 
-    lo, hi = 6, h
-    while lo < hi:
-        mid = (lo + hi + 1) // 2
-        x0, y0, x1, y1 = draw.multiline_textbbox((0, 0), text, font=font(mid), align="center")
-        lo, hi = (mid, hi) if x1 - x0 <= w - 2 * margin and y1 - y0 <= h - 2 * margin else (lo, mid - 1)
-    f = font(lo)
-    x0, y0, x1, y1 = draw.multiline_textbbox((0, 0), text, font=f, align="center")
-    draw.multiline_text(((w - x1 - x0) / 2, (h - y1 - y0) / 2), text, font=f, fill=0, align="center")
+    def bbox(t, size):
+        return draw.multiline_textbbox((0, 0), t, font=font(size), align="center")
+
+    def best_size(t):
+        lo, hi = 6, h
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            x0, y0, x1, y1 = bbox(t, mid)
+            fits = x1 - x0 <= w - 2 * margin and y1 - y0 <= h - 2 * margin
+            lo, hi = (mid, hi) if fits else (lo, mid - 1)
+        return lo
+
+    layouts = {text} if "\n" in text else {textwrap.fill(text, c, break_long_words=False)
+                                                       for c in range(1, len(text) + 1)}
+    size, text = max((best_size(t), t) for t in layouts)
+    x0, y0, x1, y1 = bbox(text, size)
+    draw.multiline_text(((w - x1 - x0) / 2, (h - y1 - y0) / 2), text, font=font(size), fill=0,
+                        align="center")
+    return img
+
+
+def render_qr(data: str, side: int) -> Image.Image:
+    """QR code (2-module quiet zone) at a whole number of dots per module, at most side wide."""
+    qr = segno.make(data, error="m")
+    m = qr.symbol_size(border=0)[0]
+    n = m + 4
+    scale = side // n
+    if scale < 2:
+        raise ValueError(f"QR data too long for the label ({n} modules in {side} dots)")
+    modules = Image.frombytes("L", (m, m), bytes(0 if v else 255 for row in qr.matrix for v in row))
+    img = Image.new("L", (n, n), 255)
+    img.paste(modules, (2, 2))
+    return img.resize((n * scale, n * scale), Image.Resampling.NEAREST).convert("1")
+
+
+def render_qr_label(data: str, text: str, w: int, h: int, margin: int = 8) -> Image.Image:
+    """QR code alone, or beside the text (below it on labels taller than wide)."""
+    img = Image.new("1", (w, h), 1)
+    qr = render_qr(data, min(w, h) - 2 * margin)
+    if not text:
+        img.paste(qr, ((w - qr.width) // 2, (h - qr.height) // 2))
+    elif w >= h:
+        img.paste(qr, (margin, (h - qr.height) // 2))
+        x = margin + qr.width
+        img.paste(render_text(text, w - x, h, margin), (x, 0))
+    else:
+        img.paste(qr, ((w - qr.width) // 2, margin))
+        y = margin + qr.height
+        img.paste(render_text(text, w, h - y, margin), (0, y))
     return img
 
 
@@ -336,7 +389,9 @@ def fit_image(path: str, w: int, h: int) -> Image.Image:
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("text", nargs="*", help="text to print (stdin if empty); '\\n' breaks lines")
-    ap.add_argument("-i", "--image", help="image file to print instead of text")
+    src = ap.add_mutually_exclusive_group()
+    src.add_argument("-i", "--image", help="image file to print instead of text")
+    src.add_argument("-q", "--qr", metavar="DATA", help="QR code, beside the text if any is given")
     ap.add_argument("-s", "--size", help="label WxH in mm (default: read from printer)")
     ap.add_argument("-d", "--density", type=int, default=4, help="burn density 0-15 (4)")
     ap.add_argument("-r", "--rotate", action="store_true", help="run content along the feed")
@@ -364,6 +419,8 @@ def main():
         w, h = h, w
     if a.image:
         img = fit_image(a.image, w, h)
+    elif a.qr:
+        img = render_qr_label(a.qr, " ".join(a.text).replace("\\n", "\n"), w, h)
     else:
         text = " ".join(a.text) if a.text else sys.stdin.read().rstrip("\n")
         img = render_text(text.replace("\\n", "\n"), w, h)

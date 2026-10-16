@@ -26,3 +26,11 @@
   to grep misses a cached printer; bluetoothctl 5.72 can also segfault on `--timeout` exit. The
   task scans silently, then greps `bluetoothctl devices`. Under dash the redirect on the command
   also hides the crash message (bash would still print it).
+- **uv and system Python**: the script declares its deps inline (PEP 723) and pins
+  `python-preference = "only-system"`; uv-managed Pythons are built without `AF_BLUETOOTH`.
+- **QR codes**: segno module matrix with a 2-module quiet zone, scaled by a whole number of
+  dots per module (nearest neighbor) so modules stay crisp; under 2 dots per module is refused.
+  Placed left of the text on wide labels, above it on tall ones. Decoded with OpenCV from the
+  preview and printed on a 40x30 label.
+- **Text wrapping**: text without explicit line breaks is tried at every wrap width (never
+  splitting words) and the layout with the largest font wins.
