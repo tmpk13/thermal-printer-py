@@ -21,12 +21,12 @@ def test_lzma_block_roundtrip_without_end_marker():
     assert len(blk) < len(marked)
 
 
-def test_to_head_centers_and_packs_lsb_first():
+def test_to_head_centers_mirrors_and_packs_lsb_first():
     img = Image.new("1", (8, 2), 1)
     img.putpixel((0, 0), 0)
     data = tp.to_head(img)
     assert len(data) == 2 * tp.BPL
-    off = (tp.HEAD_DOTS - 8) // 2  # 188 -> byte 23, bit 4
+    off = tp.HEAD_DOTS - 1 - (tp.HEAD_DOTS - 8) // 2  # image x=0 -> dot 195 (mirrored)
     assert data[off // 8] == 1 << (off % 8)
     assert sum(data) == data[off // 8]
 

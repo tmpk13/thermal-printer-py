@@ -9,7 +9,8 @@
   Python's `lzma` always writes one, so `lzma_block` calls liblzma's raw `LZMA1EXT` encoder via
   ctypes (`ext_flags = 0` disables the marker) and writes the 13-byte "alone" header by hand.
 - **Raster layout**: image rows are feed columns, image x is the printhead dot. 384 dots (48 B)
-  per row, LSB-first, 1 = burn; the label is centered on the head.
+  per row, LSB-first, 1 = burn; the label is centered on the head. Rows are mirrored before
+  packing: unmirrored text printed backwards (verified on a T50 Pro).
 - **Blocks**: whole page in one LZMA block at speed 60 when the per-buffer compressed sizes sum
   to <= 4000 B, otherwise one block per 4096 B buffer at speed 20 (matches the vendor USB tool).
 - **Bluetooth (RFCOMM channel 1)**: 16-byte `7E 5A` commands with little-endian params and a
@@ -21,4 +22,3 @@
   command; one early test print failed on a reply mismatch that did not recur.
 - **No link-speed measurement**: the reference caps print speed by measured Bluetooth throughput
   so dense images do not stripe; this script uses the density rule only, fine for text.
-- Orientation/mirroring on paper is unverified on hardware; `--rotate` covers long labels.

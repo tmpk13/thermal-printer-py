@@ -65,11 +65,15 @@ def lzma_block(data: bytes) -> bytes:
 
 
 def to_head(img: Image.Image) -> bytes:
-    """Rows become feed columns: center the image on the head, pack 48 bytes per row."""
+    """Rows become feed columns: center the image on the head, pack 48 bytes per row.
+
+    Head dot 0 prints on the right of the label as it leaves the printer, so rows are
+    mirrored to make image x run left to right on paper.
+    """
     img = img.convert("1")
     canvas = Image.new("1", (HEAD_DOTS, img.height), 1)
     canvas.paste(img, ((HEAD_DOTS - img.width) // 2, 0))
-    return canvas.tobytes().translate(PACK)
+    return canvas.transpose(Image.Transpose.FLIP_LEFT_RIGHT).tobytes().translate(PACK)
 
 
 def print_buffers(data: bytes, density: int = 4) -> list[bytes]:
