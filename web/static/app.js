@@ -1,5 +1,5 @@
 import {HEAD_DOTS, DOTS_PER_MM} from "./raster.js";
-import {onAsset, paint, printPNG, renderBits, whenReady} from "./render.js";
+import {onAsset, paint, printPNG, renderBits, rotateElement, whenReady} from "./render.js";
 import {buildIndex, mostUsed, search} from "./search.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -49,12 +49,20 @@ const designMm = (lb = label()) => (lb.rotate ? [lb.h_mm, lb.w_mm] : [lb.w_mm, l
 const round = (v, step = 0.125) => Math.round(v / step) * step;
 
 let saveTimer = 0;
+function saveNow() {
+    clearTimeout(saveTimer);
+    saveTimer = 0;
+    if (!store.set(STORE, batch)) setMessage("Could not save to browser storage (too big?). Export to keep it.", true);
+}
+
 function save() {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-        if (!store.set(STORE, batch)) setMessage("Could not save to browser storage (too big?). Export to keep it.", true);
-    }, 300);
+    saveTimer = setTimeout(saveNow, 300);
 }
+
+// A pending debounced save would be lost if the tab closes or reloads first.
+addEventListener("pagehide", () => saveTimer && saveNow());
+document.addEventListener("visibilitychange", () => document.hidden && saveTimer && saveNow());
 
 function setMessage(text, error = false) {
     const m = $("#message");
@@ -119,6 +127,8 @@ onAsset(() => {
 
 let drag = null;
 overlay.addEventListener("pointerdown", (ev) => {
+    // preventDefault below keeps focus where it was; release inputs so shortcuts reach the canvas.
+    if (document.activeElement?.matches("input, textarea, select")) document.activeElement.blur();
     const box = ev.target.closest(".box");
     if (!box) {
         selectEl(null);
@@ -312,6 +322,11 @@ function renderProps() {
             $("#image-file").click();
         });
     }
+    if (el.type === "text") {
+        const r = btn(`Rotate (${el.rot || 0})`, () => rotateSelected(1));
+        r.id = "rotate-el";
+        r.title = "Turn 90 degrees clockwise (R, Shift+R for counterclockwise)";
+    }
     btn("Forward", () => moveEl(1));
     btn("Back", () => moveEl(-1));
     btn("Duplicate", duplicateEl);
@@ -334,6 +349,22 @@ function moveEl(delta) {
     const j = i + delta;
     if (j < 0 || j >= els.length) return;
     [els[i], els[j]] = [els[j], els[i]];
+    renderView();
+}
+
+function rotateSelected(dir) {
+    const el = selected();
+    if (!el) return;
+    rotateElement(el, dir);
+    // A box turned on a narrow label can stick out; trim it to the label so text refits.
+    const [W, H] = designMm();
+    const x0 = Math.max(0, el.x);
+    const y0 = Math.max(0, el.y);
+    el.w = Math.max(1, Math.min(el.x + el.w, W) - x0);
+    el.h = Math.max(1, Math.min(el.y + el.h, H) - y0);
+    [el.x, el.y] = [x0, y0];
+    const b = $("#rotate-el");
+    if (b) b.textContent = `Rotate (${el.rot})`;
     renderView();
 }
 
@@ -654,6 +685,9 @@ document.addEventListener("keydown", (ev) => {
         deleteEl();
     } else if (ev.key === "d" && (ev.ctrlKey || ev.metaKey)) {
         duplicateEl();
+    } else if (ev.key.toLowerCase() === "r" && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+        if (el.type !== "text") return;
+        rotateSelected(ev.shiftKey ? -1 : 1);
     } else {
         return;
     }

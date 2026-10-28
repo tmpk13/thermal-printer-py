@@ -57,3 +57,12 @@
   matching `Origin` when one is sent.
 - **Rotate toggle transposes boxes**: element boxes are in design-orientation mm; turning a
   label swaps each box's x/y and w/h so content stays on the label instead of being clipped.
+- **Text rotation**: `rot` (0/90/180/270) per text element. A turn swaps the box's width and
+  height about its center (snapped to the dot grid, trimmed to the label), and the text is laid
+  out in the unturned box then drawn through a canvas rotation, so auto-fit sizing is the same
+  at every angle.
+- **Shortcut focus**: canvas pointerdown calls preventDefault (no text selection while dragging),
+  which also keeps focus in the last input, so R/Delete/arrows went to that input. Pointerdown
+  now blurs a focused input first.
+- **Save flush**: batch saves are debounced 300 ms; a pending save is flushed on `pagehide` and
+  when the tab is hidden, otherwise a reload right after an edit dropped it.

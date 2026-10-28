@@ -50,6 +50,16 @@ with sync_playwright() as p:
     pg.fill(".card.current .qty input", "3")
     pg.click("#new-label"); pg.click("#add-text"); pg.fill("#props textarea", "Second")
     pg.check("#label-rotate")
+    pg.locator(".box.selected").click()
+    pg.keyboard.press("r")
+    rot_dims = (pg.input_value("#props [data-key=w]"), pg.input_value("#props [data-key=h]"))
+    rot_label = pg.inner_text("#rotate-el")
+    pg.keyboard.press("Shift+R")
+    pg.keyboard.press("Shift+R")
+    rot_back = pg.inner_text("#rotate-el")
+    pg.click("#rotate-el")
+    pg.click("#rotate-el")
+    rot_final = pg.inner_text("#rotate-el")
     pg.screenshot(path=f"{OUT}/editor.png")
     pg.click("#print-batch")
     pg.wait_for_function("document.querySelector('#message').textContent.startsWith('Printed')", timeout=15000)
@@ -63,5 +73,7 @@ assert ord(first) == 0x2713 and text == "Box 12 \u2713", (first, text)
 assert y_after != "1.5", "drag did not move the box"
 assert msg == "Printed 4 labels", msg
 assert printed == [((320, 240), 4)] * 4, printed  # rotated label still prints 40 mm across
+assert rot_dims == ("30", "27") and rot_label == "Rotate (90)", (rot_dims, rot_label)
+assert (rot_back, rot_final) == ("Rotate (270)", "Rotate (90)"), (rot_back, rot_final)
 assert cards == 2, "batch not restored after reload"
 print(f"ok, output in {OUT}")

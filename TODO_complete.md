@@ -10,3 +10,4 @@
 - Optional `tprint.toml` with the Bluetooth address, falling back to USB
 - Web label designer: free placement of text/QR/image/box, batches with quantities, Unicode
   panel with fuzzy search and most-used bar, export/import, print progress and cancel
+- Text rotation in the web designer (R / Shift+R and a Rotate button)

@@ -77,7 +77,32 @@ function layoutText(ctx, el, w, h) {
     return {px, lines: wrapWords(el.text, w, measure)};
 }
 
+// Quarter turn of an element about its box center: the box swaps width and height, so the
+// content keeps its size. dir 1 = clockwise, -1 = counterclockwise.
+export function rotateElement(el, dir = 1) {
+    const cx = el.x + el.w / 2;
+    const cy = el.y + el.h / 2;
+    const snap = (v) => Math.round(v * DOTS_PER_MM) / DOTS_PER_MM;
+    [el.w, el.h] = [el.h, el.w];
+    el.x = snap(cx - el.w / 2);
+    el.y = snap(cy - el.h / 2);
+    el.rot = (((el.rot || 0) + 90 * dir) % 360 + 360) % 360;
+    return el;
+}
+
+// Text turned by el.rot degrees: laid out in the unrotated box, then turned into place.
 function drawText(ctx, el, x, y, w, h) {
+    const rot = el.rot || 0;
+    if (!rot) return drawTextUpright(ctx, el, x, y, w, h);
+    const [lw, lh] = rot % 180 ? [h, w] : [w, h];
+    ctx.save();
+    ctx.translate(x + w / 2, y + h / 2);
+    ctx.rotate((rot * Math.PI) / 180);
+    drawTextUpright(ctx, el, -lw / 2, -lh / 2, lw, lh);
+    ctx.restore();
+}
+
+function drawTextUpright(ctx, el, x, y, w, h) {
     if (el.invert) {
         ctx.fillStyle = "#000";
         ctx.fillRect(x, y, w, h);

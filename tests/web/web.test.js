@@ -2,6 +2,7 @@ import {describe, expect, test} from "bun:test";
 import {
     compositeLayer, ditherFS, grayFromRGBA, qrScale, rotateCCW, threshold, wrapWords,
 } from "../../web/static/raster.js";
+import {rotateElement} from "../../web/static/render.js";
 import {buildIndex, mostUsed, search} from "../../web/static/search.js";
 
 describe("raster", () => {
@@ -101,5 +102,22 @@ describe("mostUsed", () => {
     test("orders by count and tops up with defaults", () => {
         expect(mostUsed({65: 1, 66: 5}, [66, 67, 68], 3)).toEqual([66, 65, 67]);
         expect(mostUsed({}, [1, 2, 3], 2)).toEqual([1, 2]);
+    });
+});
+
+describe("rotateElement", () => {
+    test("turns the box about its center and tracks the angle", () => {
+        const el = {x: 2, y: 4, w: 20, h: 6};
+        rotateElement(el);
+        expect(el).toEqual({x: 9, y: -3, w: 6, h: 20, rot: 90});
+        rotateElement(el, -1);
+        expect(el).toEqual({x: 2, y: 4, w: 20, h: 6, rot: 0});
+        rotateElement(el, -1);
+        expect(el).toEqual({x: 9, y: -3, w: 6, h: 20, rot: 270});
+    });
+
+    test("keeps the box on the dot grid", () => {
+        const el = rotateElement({x: 0, y: 0, w: 3, h: 2.125});
+        expect(Number.isInteger(el.x * 8) && Number.isInteger(el.y * 8)).toBe(true);
     });
 });
