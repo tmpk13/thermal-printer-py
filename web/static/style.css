@@ -1,0 +1,182 @@
+/* Solarized palette */
+:root {
+    --base03: #002b36; --base02: #073642; --base01: #586e75; --base00: #657b83;
+    --base0: #839496; --base1: #93a1a1; --base2: #eee8d5; --base3: #fdf6e3;
+    --yellow: #b58900; --orange: #cb4b16; --red: #dc322f; --blue: #268bd2;
+    --cyan: #2aa198; --green: #859900;
+
+    --bg: var(--base3); --surface: var(--base2); --text: var(--base00);
+    --strong: var(--base01); --muted: var(--base1); --border: var(--base1);
+    --accent: var(--blue);
+    color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --bg: var(--base03); --surface: var(--base02); --text: var(--base0);
+        --strong: var(--base1); --muted: var(--base01); --border: var(--base01);
+        color-scheme: dark;
+    }
+}
+:root[data-theme="dark"] {
+    --bg: var(--base03); --surface: var(--base02); --text: var(--base0);
+    --strong: var(--base1); --muted: var(--base01); --border: var(--base01);
+    color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+    margin: 0;
+    font: 0.95rem/1.4 system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+}
+h1, h2, h3 { color: var(--strong); margin: 0 0 0.5em; }
+h1 { font-size: 1.15rem; margin: 0; }
+h2 { font-size: 1rem; }
+h3 { font-size: 0.95rem; }
+
+button, input, select, textarea {
+    font: inherit;
+    color: inherit;
+    background: var(--bg);
+    border: 0.0625rem solid var(--border);
+    border-radius: 0.3em;
+    padding: 0.25em 0.55em;
+}
+button { cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--base3); }
+button.danger { color: var(--red); }
+button.danger:hover { border-color: var(--red); }
+input[type="number"] { width: 5em; }
+input[type="checkbox"] { padding: 0; }
+textarea { width: 100%; resize: vertical; }
+
+header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5em;
+    padding: 0.6em 1em;
+    background: var(--surface);
+    border-bottom: 0.0625rem solid var(--border);
+}
+.grow { flex: 1; }
+.inline { display: inline-flex; align-items: center; gap: 0.35em; }
+.row { display: flex; flex-wrap: wrap; gap: 0.4em; align-items: center; }
+.chip { border-radius: 1em; font-size: 0.85em; }
+.chip.ok { color: var(--green); border-color: var(--green); }
+.chip.bad { color: var(--orange); border-color: var(--orange); }
+.hint { color: var(--muted); font-size: 0.85em; margin: 0.5em 0 0; }
+
+#message { margin: 0; padding: 0.3em 1em; min-height: 1.9em; color: var(--cyan); }
+#message.error { color: var(--red); }
+
+main {
+    display: grid;
+    grid-template-columns: minmax(10em, 16em) minmax(0, 1fr) minmax(16em, 22em);
+    gap: 0.8em;
+    padding: 0 1em 1em;
+    align-items: start;
+}
+@media (max-width: 60em) {
+    main { grid-template-columns: 1fr; }
+}
+.panel {
+    background: var(--surface);
+    border: 0.0625rem solid var(--border);
+    border-radius: 0.5em;
+    padding: 0.8em;
+    min-width: 0;
+}
+
+/* Batch list */
+#batch { list-style: none; margin: 0 0 0.6em; padding: 0; display: grid; gap: 0.5em; }
+.card {
+    display: grid;
+    grid-template-columns: 4.5em 1fr;
+    gap: 0.5em;
+    padding: 0.4em;
+    border: 0.0625rem solid transparent;
+    border-radius: 0.4em;
+    cursor: pointer;
+}
+.card:hover { border-color: var(--border); }
+.card.current { border-color: var(--accent); background: var(--bg); }
+.card canvas {
+    width: 100%;
+    image-rendering: pixelated;
+    border: 0.0625rem solid var(--border);
+    background: #fff;
+}
+.card .meta { display: grid; gap: 0.25em; align-content: start; min-width: 0; }
+.card .name { color: var(--strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card .qty input { width: 4em; }
+.card .row button { font-size: 0.8em; padding: 0.1em 0.4em; }
+
+/* Editor stage: the canvas holds the label at one pixel per dot, scaled up by CSS. */
+.toolbar, .label-form { margin-bottom: 0.6em; }
+.stage-wrap {
+    display: flex;
+    justify-content: center;
+    padding: 1.5em;
+    background: repeating-conic-gradient(var(--bg) 0 25%, var(--surface) 0 50%) 0 0 / 1.2em 1.2em;
+    border-radius: 0.4em;
+}
+#stage {
+    position: relative;
+    aspect-ratio: var(--aspect, 4 / 3);
+    width: min(100%, calc(62vh * var(--ratio, 1.33)));
+    box-shadow: 0 0.2em 0.8em rgb(0 0 0 / 0.25);
+}
+#view {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    image-rendering: pixelated;
+    background: #fff;
+}
+#overlay { position: absolute; inset: 0; touch-action: none; }
+.box {
+    position: absolute;
+    outline: 0.0625rem dashed rgb(38 139 210 / 0.45);
+    cursor: move;
+}
+.box.selected { outline: 0.125rem solid var(--blue); }
+.handle {
+    position: absolute;
+    width: 0.8em;
+    height: 0.8em;
+    background: var(--blue);
+    border: 0.125rem solid #fff;
+    border-radius: 50%;
+}
+.handle.nw { left: -0.4em; top: -0.4em; cursor: nwse-resize; }
+.handle.se { right: -0.4em; bottom: -0.4em; cursor: nwse-resize; }
+.handle.ne { right: -0.4em; top: -0.4em; cursor: nesw-resize; }
+.handle.sw { left: -0.4em; bottom: -0.4em; cursor: nesw-resize; }
+
+/* Properties */
+#props { margin-bottom: 1em; }
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4em 0.6em; margin-bottom: 0.6em; }
+.field { display: grid; gap: 0.15em; font-size: 0.85em; }
+.field.area { grid-column: 1 / -1; }
+.field.check { display: flex; align-items: center; gap: 0.4em; }
+.field input[type="number"], .field select { width: 100%; }
+
+/* Unicode panel */
+.unicode { border-top: 0.0625rem solid var(--border); padding-top: 0.8em; }
+#uni-search { width: 100%; margin: 0.5em 0; }
+.glyphs { display: grid; grid-template-columns: repeat(auto-fill, minmax(2.2em, 1fr)); gap: 0.25em; }
+.glyphs.results { max-height: 40vh; overflow-y: auto; align-content: start; }
+.glyph {
+    aspect-ratio: 1;
+    padding: 0;
+    font-size: 1.25em;
+    line-height: 1;
+    overflow: hidden;
+}
+#most-used .glyph { background: var(--bg); }
+#uni-name { min-height: 1.4em; overflow-wrap: anywhere; }

@@ -1,6 +1,17 @@
 [tasks.test]
-description = "Run unit tests"
-run = "uv run -q --no-project --python-preference only-system --with pytest --with pillow --with segno pytest -q --tb=short tests"
+description = "Run unit tests (Python and the web editor's JS)"
+run = [
+    "uv run -q --no-project --python-preference only-system --with pytest --with pillow --with segno pytest -q --tb=short tests",
+    "bun test ./tests/web",
+]
+
+[tasks.test-e2e]
+description = "Drive the web designer in headless Chromium against a fake printer"
+run = "uv run -q --no-project --python-preference only-system --with playwright --with pillow --with segno python tests/e2e_web.py"
+
+[tasks.web]
+description = "Web label designer on http://127.0.0.1:8350/ (args: --port, --host, -b ADDR)"
+run = "uv run -q web/server.py"
 
 [tasks.print]
 description = "Print text or an image: mise run print -- 'Hello' | -- -i logo.png"

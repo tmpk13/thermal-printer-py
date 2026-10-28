@@ -8,10 +8,11 @@ or Bluetooth Classic.
 ```sh
 mise run udev      # USB, once: allows non-root access to /dev/hidrawN
 bluetoothctl --timeout 10 scan on   # Bluetooth: printer advertises as its serial, e.g. T0205C...
+cp tprint.example.toml tprint.toml  # optional: Bluetooth address to try before USB
 ```
 
 Run through [uv](https://docs.astral.sh/uv/) (`uv run tprint.py`), which installs Pillow and
-segno. Needs the system Python (3.10+) and `liblzma.so.5` (>= 5.4).
+segno. Needs the system Python (3.11+) and `liblzma.so.5` (>= 5.4).
 
 ## Usage
 
@@ -28,6 +29,17 @@ TPRINT_DEBUG=1 uv run tprint.py ...      # trace frames on stderr
 mise run test
 ```
 
+## Web designer
+
+```sh
+mise run web       # http://127.0.0.1:8350/
+```
+
+Optional browser front end for designing labels: text, QR codes, images (dithered) and boxes
+placed freely in mm, a batch of labels each with a quantity, and a Unicode character panel
+with fuzzy search and a most-used bar. The preview is the exact 1-bit raster that prints. The
+batch lives in browser storage; Export/Import saves it as JSON. `tprint.py` does not depend on it.
+
 ## Architecture
 
 ```mermaid
@@ -39,8 +51,16 @@ classDiagram
     class Printer { status() label_mm() print_image() }
     class UsbPrinter { cmd() send_block() }
     class BtPrinter { cmd() send_block() }
+    class config { load_config() connect() }
+    class server { web/server.py: /api/print /api/qr /api/unicode /api/printer }
+    class Job { start() cancel }
+    class browser { app.js render.js raster.js search.js }
     main --> render : label-sized 1-bit image
-    main --> Printer
+    main --> config
+    config --> Printer : tprint.toml bt_address, else USB
+    browser --> server : 1-bit PNG per label + copies
+    server --> Job
+    Job --> config : tprint.connect()
     Printer <|-- UsbPrinter
     Printer <|-- BtPrinter
     Printer --> raster : 4096 B buffers

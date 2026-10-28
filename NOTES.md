@@ -34,3 +34,26 @@
   preview, and the printed 40x30 label scans with a phone.
 - **Text wrapping**: text without explicit line breaks is tried at every wrap width (never
   splitting words) and the layout with the largest font wins.
+- **Config file**: optional `tprint.toml` (next to `tprint.py`, then `~/.config/tprint/`) with
+  `bt_address`. Explicit `-b`/`TPRINT_BT` wins with no fallback; the configured address falls
+  back to USB when the connect fails, so a USB-only session still works with the file present.
+- **Web designer is a leaf**: `web/server.py` imports `tprint`; nothing in `tprint.py` knows
+  about it. The browser renders each label to the final 1-bit raster (text and QR thresholded,
+  images Floyd-Steinberg dithered per element) and the server prints that PNG unchanged, so
+  the preview is exactly what burns. Rotation happens in the browser (quarter turn
+  counterclockwise, same as `-r`), so the server only checks the width fits the 384-dot head.
+- **QR in the web editor**: matrices come from the server's segno (`/api/qr`), no JS QR library,
+  so the CLI and the editor encode identically. Same whole-dots-per-module rule, hatched box
+  when under 2 dots per module.
+- **Unicode search, no model**: Python's `unicodedata` names (29.5k after dropping controls,
+  combining marks and algorithmically named CJK/Hangul/Tangut ranges), served gzipped once
+  (about 300 KB). Each query word must match a name as whole word, prefix, substring or
+  compact subsequence starting at a word; a small synonym table covers words Unicode spells
+  differently (tick, deg, bolt, ...). A full scan takes a few ms, so a tiny LLM or embedding
+  model would only add tens of MB for little gain. A plain subsequence was too loose: "tick"
+  matched T..I..C..K across long names, hence the word-start and span limit.
+- **Cross-site posts**: the server binds to localhost, but any page in the browser could post
+  to it. POSTs need `Content-Type: application/json` (forces a CORS preflight that fails) and a
+  matching `Origin` when one is sent.
+- **Rotate toggle transposes boxes**: element boxes are in design-orientation mm; turning a
+  label swaps each box's x/y and w/h so content stays on the label instead of being clipped.
