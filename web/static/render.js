@@ -9,6 +9,7 @@ import {
     DOTS_PER_MM, bitsToRGBA, compositeLayer, ditherFS, grayFromRGBA, qrScale, rotateCCW,
     threshold, wrapWords,
 } from "./raster.js";
+import {fillElement} from "./vars.js";
 
 const listeners = new Set();
 export const onAsset = (fn) => listeners.add(fn);
@@ -207,13 +208,14 @@ function drawRect(ctx, el, x, y, w, h) {
 
 const DRAW = {text: drawText, qr: drawQR, image: drawImageEl, rect: drawRect};
 
-// Label -> {bits, w, h} in design orientation.
-export function renderBits(label) {
+// Label -> {bits, w, h} in design orientation, with variables filled from vars when given.
+export function renderBits(label, vars = null) {
     const [W, H] = designSize(label);
     const bits = new Uint8Array(W * H);
     const layer = new OffscreenCanvas(Math.max(1, W), Math.max(1, H));
     const ctx = layer.getContext("2d", {willReadFrequently: true});
-    for (const el of label.elements) {
+    for (const raw of label.elements) {
+        const el = vars ? fillElement(raw, vars) : raw;
         ctx.clearRect(0, 0, W, H);
         const x = dots(el.x);
         const y = dots(el.y);
@@ -236,8 +238,8 @@ export function paint(canvas, {bits, w, h}, ink, paper) {
 }
 
 // PNG data URL in printer orientation (x across the head), as /api/print expects.
-export async function printPNG(label) {
-    let {bits, w, h} = renderBits(label);
+export async function printPNG(label, vars = null) {
+    let {bits, w, h} = renderBits(label, vars);
     if (label.rotate) {
         bits = rotateCCW(bits, w, h);
         [w, h] = [h, w];
@@ -247,16 +249,19 @@ export async function printPNG(label) {
     return c.toDataURL("image/png");
 }
 
-function missing(label) {
-    return label.elements.some((el) =>
-        (el.type === "qr" && !qrFor(el.data || " ", el.ecc || "m")) ||
-        (el.type === "image" && !imageFor(el.src)));
+// Also starts loading whatever is missing.
+export function missing(label, vars = null) {
+    return label.elements
+        .map((el) => (vars ? fillElement(el, vars) : el))
+        .filter((el) =>
+            (el.type === "qr" && !qrFor(el.data || " ", el.ecc || "m")) ||
+            (el.type === "image" && !imageFor(el.src))).length > 0;
 }
 
 // Resolves once every QR matrix and image the label uses has loaded.
-export async function whenReady(label, timeoutMs = 8000) {
+export async function whenReady(label, vars = null, timeoutMs = 8000) {
     const end = Date.now() + timeoutMs;
-    while (missing(label)) {
+    while (missing(label, vars)) {
         if (Date.now() > end) throw new Error(`"${label.name}": QR codes or images did not load`);
         await new Promise((r) => setTimeout(r, 50));
     }

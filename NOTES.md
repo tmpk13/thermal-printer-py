@@ -70,3 +70,12 @@
   box, rather than inside the selected box; otherwise a later element's box covered them and a
   click on a handle selected that element instead. The selected box itself is not raised, so
   elements inside it (text in a border box) stay clickable.
+- **Variables**: `{name}` placeholders in text and QR data, filled from a per-label CSV/TSV
+  table (header line = names, each later line = one label) plus built-ins. There is no escape
+  syntax; unknown names are left as written instead, so existing text with braces (JSON in a
+  QR) is untouched. `{n}` runs over rows and copies in print order (`start + row * copies +
+  copy`). A label is rendered once per row and sent with its copy count, unless a template
+  uses `{n}` or `{copy}`; then every copy is its own image, since each one differs.
+- **QR prefetch**: `missing()` checks every element instead of stopping at the first gap, so one
+  pass starts all QR fetches for a print run; a batch of numbered QR labels then waits for one
+  round of requests, not one per label.

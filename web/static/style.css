@@ -168,6 +168,13 @@ main {
 .field.check { display: flex; align-items: center; gap: 0.4em; }
 .field input[type="number"], .field select { width: 100%; }
 
+/* Variables */
+.vars { border-top: 0.0625rem solid var(--border); padding-top: 0.8em; margin-bottom: 1em; }
+.vars textarea { font-family: ui-monospace, monospace; margin-bottom: 0.4em; }
+#var-chips { margin-top: 0.5em; }
+.var-chip { font-family: ui-monospace, monospace; font-size: 0.8em; padding: 0.1em 0.4em; }
+.card .rows { color: var(--muted); font-size: 0.85em; }
+
 /* Unicode panel */
 .unicode { border-top: 0.0625rem solid var(--border); padding-top: 0.8em; }
 #uni-search { width: 100%; margin: 0.5em 0; }

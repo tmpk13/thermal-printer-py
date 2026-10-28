@@ -1,6 +1,7 @@
 import {HEAD_DOTS, DOTS_PER_MM} from "./raster.js";
-import {onAsset, paint, printPNG, renderBits, rotateElement, whenReady} from "./render.js";
+import {missing, onAsset, paint, printPNG, renderBits, rotateElement, whenReady} from "./render.js";
 import {buildIndex, mostUsed, search} from "./search.js";
+import {BUILTINS, instances, labelCount, parseTable, tableRows, varsFor} from "./vars.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const MAX_W_MM = HEAD_DOTS / DOTS_PER_MM;
@@ -35,7 +36,7 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 
 function newLabel(name = "Label") {
     const [w, h] = printerMm || [40, 30];
-    return {id: uid(), name, w_mm: w, h_mm: h, rotate: false, copies: 1, elements: []};
+    return {id: uid(), name, w_mm: w, h_mm: h, rotate: false, copies: 1, vars: "", start: 1, elements: []};
 }
 
 let batch = store.get(STORE, null);
@@ -47,6 +48,8 @@ const label = () => batch.labels[cur];
 const selected = () => label().elements.find((e) => e.id === selId) || null;
 const designMm = (lb = label()) => (lb.rotate ? [lb.h_mm, lb.w_mm] : [lb.w_mm, lb.h_mm]);
 const round = (v, step = 0.125) => Math.round(v / step) * step;
+// Rendered as the row picked for preview prints.
+const draw = (lb) => renderBits(lb, varsFor(lb, lb.row || 0));
 
 let saveTimer = 0;
 function saveNow() {
@@ -78,7 +81,7 @@ const stage = $("#stage");
 
 function renderView() {
     const lb = label();
-    const out = renderBits(lb);
+    const out = draw(lb);
     paint(view, out);
     const [wmm, hmm] = designMm(lb);
     stage.style.setProperty("--aspect", `${out.w} / ${out.h}`);
@@ -127,7 +130,7 @@ onAsset(() => {
     renderView();
     batch.labels.forEach((lb) => {
         const t = $(`.card[data-id="${lb.id}"] canvas`);
-        if (t && lb !== label()) paint(t, renderBits(lb));
+        if (t && lb !== label()) paint(t, draw(lb));
     });
 });
 
@@ -398,6 +401,9 @@ function renderLabelForm() {
     $("#label-h").value = lb.h_mm;
     $("#label-rotate").checked = lb.rotate;
     $("#use-printer").disabled = !printerMm;
+    if ($("#vars-table").value !== (lb.vars || "")) $("#vars-table").value = lb.vars || "";
+    $("#vars-start").value = Number.isFinite(lb.start) ? lb.start : 1;
+    renderVarsInfo();
 }
 
 $("#label-name").oninput = (ev) => {
@@ -426,6 +432,52 @@ $("#use-printer").onclick = () => {
     renderView();
 };
 
+// ---------- variables ----------
+
+function renderVarsInfo() {
+    const lb = label();
+    const rows = tableRows(lb);
+    lb.row = Math.min(lb.row || 0, Math.max(0, rows - 1));
+    $("#row-info").textContent = rows ? `Row ${lb.row + 1} of ${rows}` : "No rows";
+    $("#row-prev").disabled = lb.row <= 0;
+    $("#row-next").disabled = lb.row >= rows - 1;
+    const names = [...parseTable(lb.vars).names, ...BUILTINS];
+    $("#var-chips").replaceChildren(...[...new Set(names)].map((name) => {
+        const b = document.createElement("button");
+        b.className = "var-chip";
+        b.textContent = `{${name}}`;
+        b.title = "Insert into the selected text or QR data";
+        b.onmousedown = (ev) => ev.preventDefault(); // keep the caret in the text box
+        b.onclick = () => insertText(b.textContent);
+        return b;
+    }));
+}
+
+function updateCard(lb) {
+    const rows = tableRows(lb);
+    const r = $(`.card[data-id="${lb.id}"] .rows`);
+    if (r) r.textContent = rows > 1 ? `${rows} rows` : "";
+    updateTotal();
+}
+
+$("#vars-table").oninput = (ev) => {
+    label().vars = ev.target.value;
+    renderVarsInfo();
+    updateCard(label());
+    renderView();
+};
+$("#vars-start").oninput = (ev) => {
+    label().start = Math.floor(Number(ev.target.value) || 0);
+    renderView();
+};
+for (const [id, d] of [["#row-prev", -1], ["#row-next", 1]]) {
+    $(id).onclick = () => {
+        label().row = (label().row || 0) + d;
+        renderVarsInfo();
+        renderView();
+    };
+}
+
 // ---------- batch ----------
 
 function renderBatch() {
@@ -435,16 +487,19 @@ function renderBatch() {
         card.className = "card" + (i === cur ? " current" : "");
         card.dataset.id = lb.id;
         card.innerHTML = `<canvas></canvas><div class="meta"><span class="name"></span>
-            <label class="qty">x <input type="number" min="0" step="1"></label>
+            <label class="qty">x <input type="number" min="0" step="1"> <span class="rows"></span></label>
             <span class="row"><button data-act="dup" title="Duplicate label">Copy</button>
             <button data-act="del" class="danger" title="Delete label">Del</button></span></div>`;
         $(".name", card).textContent = lb.name;
+        const rows = tableRows(lb);
+        $(".rows", card).textContent = rows > 1 ? `${rows} rows` : "";
         const qty = $("input", card);
         qty.value = lb.copies;
         qty.oninput = () => {
             lb.copies = Math.max(0, Math.floor(Number(qty.value) || 0));
             updateTotal();
-            save();
+            if (lb === label()) renderView(); // {n} and {total} depend on copies
+            else save();
         };
         card.onclick = (ev) => {
             const act = ev.target.dataset.act;
@@ -467,14 +522,14 @@ function renderBatch() {
             selId = null;
             renderAll();
         };
-        paint($("canvas", card), renderBits(lb));
+        paint($("canvas", card), draw(lb));
         return card;
     }));
     updateTotal();
 }
 
 function updateTotal() {
-    const n = batch.labels.reduce((s, lb) => s + lb.copies, 0);
+    const n = batch.labels.reduce((s, lb) => s + labelCount(lb), 0);
     $("#total").textContent = `${n} label${n === 1 ? "" : "s"}`;
 }
 
@@ -548,10 +603,13 @@ async function printLabels(labels) {
     }
     setMessage("Preparing...");
     try {
+        const now = new Date();
+        const jobs = labels.flatMap((lb) => instances(lb, now).map((it) => ({lb, ...it})));
+        jobs.forEach(({lb, vars}) => missing(lb, vars)); // fetch every QR at once
         const items = [];
-        for (const lb of labels) {
-            await whenReady(lb);
-            items.push({png: await printPNG(lb), copies: lb.copies});
+        for (const {lb, vars, copies} of jobs) {
+            await whenReady(lb, vars);
+            items.push({png: await printPNG(lb, vars), copies});
         }
         const r = await fetch("api/print", {
             method: "POST",
@@ -629,7 +687,14 @@ function renderMostUsed() {
 }
 
 function insertChar(cp) {
-    const ch = String.fromCodePoint(cp);
+    insertText(String.fromCodePoint(cp));
+    useCounts[cp] = (useCounts[cp] || 0) + 1;
+    store.set(USE_STORE, useCounts);
+    renderMostUsed();
+}
+
+// Into the selected element's text or QR data at the caret, else as a new text element.
+function insertText(ch) {
     const el = selected();
     const area = $("#props textarea[data-key='text'], #props textarea[data-key='data']");
     if (el && area) {
@@ -642,9 +707,6 @@ function insertChar(cp) {
     } else {
         addElement("text", {text: ch});
     }
-    useCounts[cp] = (useCounts[cp] || 0) + 1;
-    store.set(USE_STORE, useCounts);
-    renderMostUsed();
 }
 
 let searchTimer = 0;

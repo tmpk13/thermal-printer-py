@@ -60,6 +60,23 @@
 
     <aside class="panel side">
         <section id="props"></section>
+        <section class="vars">
+            <h2>Variables</h2>
+            <textarea id="vars-table" rows="4" spellcheck="false" aria-label="Variable table"
+                      placeholder="name,id&#10;Box A,1001&#10;Box B,1002"></textarea>
+            <div class="row">
+                <label class="inline" title="Value of {n} on the first label">Start
+                    <input id="vars-start" type="number" step="1"></label>
+                <span class="grow"></span>
+                <button id="row-prev" title="Preview the previous row">&lt;</button>
+                <span id="row-info"></span>
+                <button id="row-next" title="Preview the next row">&gt;</button>
+            </div>
+            <div id="var-chips" class="row" aria-label="Insert a variable"></div>
+            <p class="hint">First line names the columns (comma or tab separated); each line
+                after it prints one label. Click a name to put it in the selected text or QR
+                data. {n} counts printed labels from Start, {n:03} pads it to 3 digits.</p>
+        </section>
         <section class="unicode">
             <h2>Characters</h2>
             <div id="most-used" class="glyphs" aria-label="Most used characters"></div>

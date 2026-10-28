@@ -2,6 +2,7 @@
 
 Usage: e2e_web.py [OUT_DIR]  - screenshots and printed labels are written there.
 """
+import hashlib
 import sys
 import tempfile
 import threading
@@ -13,11 +14,13 @@ from playwright.sync_api import sync_playwright  # noqa: E402
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else tempfile.mkdtemp(prefix="label-e2e-")
 printed = []
+hashes = []
 class Fake:
     def label_mm(self): return (40, 30)
     def status(self): return {"buf_full": False, "busy": False, "printing": False}
     def print_image(self, img, d):
         img.save(f"{OUT}/printed{len(printed)}.png"); printed.append((img.size, d))
+        hashes.append(hashlib.md5(img.tobytes()).hexdigest())
     def close(self): pass
 
 httpd = server.make_server("127.0.0.1", 0, Fake)
@@ -66,6 +69,24 @@ with sync_playwright() as p:
     msg = pg.inner_text("#message")
     pg.reload(); pg.wait_for_selector(".card")
     cards = pg.locator(".card").count()
+    # Variables: 2 rows x 3 copies with {n} in text and QR data print 6 different labels.
+    pg.click("#new-label"); pg.click("#add-qr")
+    pg.fill("#props [data-key=w]", "18"); pg.fill("#props [data-key=h]", "18")
+    pg.fill("#props textarea", "id-")
+    pg.fill("#vars-table", "name\nA\nB")
+    pg.locator(".var-chip", has_text="{name}").click()
+    pg.locator(".var-chip", has_text="{n}").click()
+    qr_data = pg.input_value("#props textarea")
+    pg.click("#add-text")
+    pg.fill("#props [data-key=x]", "20"); pg.fill("#props [data-key=w]", "18.5")
+    pg.fill("#props textarea", "{name} {n:02}")
+    pg.fill(".card.current .qty input", "3")
+    rows_ui = [pg.inner_text("#row-info"), pg.inner_text(".card.current .rows")]
+    pg.click("#row-next")
+    rows_ui.append(pg.inner_text("#row-info"))
+    pg.wait_for_load_state("networkidle"); pg.screenshot(path=f"{OUT}/vars.png")
+    pg.click("#print-one")
+    pg.wait_for_function("document.querySelector('#message').textContent === 'Printed 6 labels'", timeout=15000)
     # Handles of an element sent behind another must still be grabbable.
     pg.click("#new-label"); pg.click("#add-rect"); pg.click("#add-text")
     pg.click("text=Back")
@@ -80,7 +101,10 @@ assert not errors, errors
 assert ord(first) == 0x2713 and text == "Box 12 \u2713", (first, text)
 assert y_after != "1.5", "drag did not move the box"
 assert msg == "Printed 4 labels", msg
-assert printed == [((320, 240), 4)] * 4, printed  # rotated label still prints 40 mm across
+assert printed[:4] == [((320, 240), 4)] * 4, printed  # rotated label still prints 40 mm across
+assert qr_data == "id-{name}{n}", qr_data
+assert rows_ui == ["Row 1 of 2", "2 rows", "Row 2 of 2"], rows_ui
+assert len(printed) == 10 and len(set(hashes[4:])) == 6, (printed, hashes)
 assert rot_dims == ("30", "27") and rot_label == "Rotate (90)", (rot_dims, rot_label)
 assert (rot_back, rot_final) == ("Rotate (270)", "Rotate (90)"), (rot_back, rot_final)
 assert covered[0] == "Text" and covered[2] < covered[1], covered

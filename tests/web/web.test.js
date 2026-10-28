@@ -4,6 +4,7 @@ import {
 } from "../../web/static/raster.js";
 import {rotateElement} from "../../web/static/render.js";
 import {buildIndex, mostUsed, search} from "../../web/static/search.js";
+import {fill, fillElement, instances, labelCount, parseTable, varsFor} from "../../web/static/vars.js";
 
 describe("raster", () => {
     test("rotateCCW matches Pillow rotate(90, expand=True)", () => {
@@ -119,5 +120,51 @@ describe("rotateElement", () => {
     test("keeps the box on the dot grid", () => {
         const el = rotateElement({x: 0, y: 0, w: 3, h: 2.125});
         expect(Number.isInteger(el.x * 8) && Number.isInteger(el.y * 8)).toBe(true);
+    });
+});
+
+describe("vars", () => {
+    const label = (vars, copies, text, extra = {}) => ({
+        copies, vars, start: 1, elements: [{type: "text", text}, {type: "qr", data: "id={id}"}], ...extra,
+    });
+    const now = new Date(2026, 0, 5, 9, 7);
+
+    test("parseTable reads CSV with quotes and spreadsheet tabs", () => {
+        const csv = parseTable('name, id\n"Box, big",1\n\n"say ""hi""\nthere",2\nshort');
+        expect(csv.names).toEqual(["name", "id"]);
+        expect(csv.rows).toEqual([
+            {name: "Box, big", id: "1"}, {name: 'say "hi"\nthere', id: "2"}, {name: "short", id: ""},
+        ]);
+        expect(parseTable("a\tb\r\nx, y\tz\r\n").rows).toEqual([{a: "x, y", b: "z"}]);
+        expect(parseTable("")).toEqual({names: [], rows: []});
+    });
+
+    test("fill substitutes, pads and leaves unknown names and JSON alone", () => {
+        const v = {n: 7, name: "A"};
+        expect(fill("Box {n:03} { name }", v)).toBe("Box 007 A");
+        expect(fill("{missing} {n:3}", v)).toBe("{missing} 007");
+        expect(fill('{"a":1, "b": {"c": 2}}', v)).toBe('{"a":1, "b": {"c": 2}}');
+        expect(fillElement({type: "rect", text: "{n}"}, v)).toEqual({type: "rect", text: "{n}"});
+    });
+
+    test("built-ins: n runs over rows and copies, columns override", () => {
+        const lb = label("id\n10\n20", 3, "{id}");
+        expect(varsFor(lb, 1, 2, now)).toMatchObject(
+            {n: 6, copy: 3, row: 2, total: 6, id: "20", date: "2026-01-05", time: "09:07"});
+        expect(varsFor({...lb, start: 100}, 0, 0, now).n).toBe(100);
+        expect(varsFor(label("n\nX", 1, ""), 0, 0, now).n).toBe("X");
+        expect(varsFor(lb, 9, 0, now).row).toBe(2); // stale preview row is clamped
+    });
+
+    test("instances: one per row, or per copy when {n} or {copy} is used", () => {
+        const rows = instances(label("id\n10\n20", 3, "Box {id}"), now);
+        expect(rows.map((i) => [i.vars.id, i.copies])).toEqual([["10", 3], ["20", 3]]);
+        const serial = instances(label("id\n10\n20", 2, "Box {n}"), now);
+        expect(serial.map((i) => [i.vars.id, i.vars.n, i.copies])).toEqual(
+            [["10", 1, 1], ["10", 2, 1], ["20", 3, 1], ["20", 4, 1]]);
+        expect(instances(label("", 2, "plain"), now).map((i) => i.copies)).toEqual([2]);
+        expect(instances(label("id\n1", 0, "{n}"), now)).toEqual([]);
+        expect(labelCount(label("id\n1\n2\n3", 2, ""))).toBe(6);
+        expect(labelCount(label("", 2, ""))).toBe(2);
     });
 });

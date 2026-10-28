@@ -40,6 +40,11 @@ placed freely in mm, a batch of labels each with a quantity, and a Unicode chara
 with fuzzy search and a most-used bar. The preview is the exact 1-bit raster that prints. The
 batch lives in browser storage; Export/Import saves it as JSON. `tprint.py` does not depend on it.
 
+Text and QR data take variables: `{name}` comes from the label's variable table (CSV or rows
+pasted from a spreadsheet, first line naming the columns), and each table row prints one label.
+Built in: `{n}` (running number from Start), `{copy}`, `{row}`, `{total}`, `{date}`, `{time}`;
+`{n:03}` pads with zeros. Unknown names print as written.
+
 ## Architecture
 
 ```mermaid
@@ -54,11 +59,11 @@ classDiagram
     class config { load_config() connect() }
     class server { web/server.py: /api/print /api/qr /api/unicode /api/printer }
     class Job { start() cancel }
-    class browser { app.js render.js raster.js search.js }
+    class browser { app.js render.js raster.js search.js vars.js }
     main --> render : label-sized 1-bit image
     main --> config
     config --> Printer : tprint.toml bt_address, else USB
-    browser --> server : 1-bit PNG per label + copies
+    browser --> server : 1-bit PNG per label, row or numbered copy + copies
     server --> Job
     Job --> config : tprint.connect()
     Printer <|-- UsbPrinter

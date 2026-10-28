@@ -11,3 +11,5 @@
 - Web label designer: free placement of text/QR/image/box, batches with quantities, Unicode
   panel with fuzzy search and most-used bar, export/import, print progress and cancel
 - Text rotation in the web designer (R / Shift+R and a Rotate button)
+- Substitution variables in the web designer: `{name}` from a per-label table (one label per
+  row) and built-ins `{n}` `{copy}` `{row}` `{total}` `{date}` `{time}` in text and QR data
