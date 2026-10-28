@@ -50,7 +50,16 @@ with sync_playwright() as p:
     box = pg.locator(".box.selected").bounding_box()
     pg.mouse.move(box["x"] + 10, box["y"] + 10); pg.mouse.down(); pg.mouse.move(box["x"] + 10, box["y"] + 30); pg.mouse.up()
     y_after = pg.input_value("#props [data-key=y]")
+    # Undo and redo the drag from the keyboard, undo an add with the button.
+    pg.keyboard.press("Control+z")
+    y_undo = pg.input_value("#props [data-key=y]")
+    pg.keyboard.press("Control+Shift+z")
+    y_redo = pg.input_value("#props [data-key=y]")
+    boxes = pg.locator(".box").count()
+    pg.click("#add-rect"); pg.click("#undo")
+    undo_ui = (pg.locator(".box").count() - boxes, pg.is_enabled("#redo"))
     pg.fill(".card.current .qty input", "3")
+    undo_ui += (pg.is_enabled("#redo"),)
     pg.click("#new-label"); pg.click("#add-text"); pg.fill("#props textarea", "Second")
     pg.check("#label-rotate")
     pg.locator(".box.selected").click()
@@ -100,6 +109,8 @@ with sync_playwright() as p:
 assert not errors, errors
 assert ord(first) == 0x2713 and text == "Box 12 \u2713", (first, text)
 assert y_after != "1.5", "drag did not move the box"
+assert (y_undo, y_redo) == ("1.5", y_after), (y_undo, y_redo, y_after)
+assert undo_ui == (0, True, False), undo_ui
 assert msg == "Printed 4 labels", msg
 assert printed[:4] == [((320, 240), 4)] * 4, printed  # rotated label still prints 40 mm across
 assert qr_data == "id-{name}{n}", qr_data

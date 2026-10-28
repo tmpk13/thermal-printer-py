@@ -45,6 +45,8 @@ pasted from a spreadsheet, first line naming the columns), and each table row pr
 Built in: `{n}` (running number from Start), `{copy}`, `{row}`, `{total}`, `{date}`, `{time}`;
 `{n:03}` pads with zeros. Unknown names print as written.
 
+Ctrl+Z / Ctrl+Shift+Z (or the Undo/Redo buttons) undo and redo edits for the session.
+
 ## Architecture
 
 ```mermaid
@@ -59,7 +61,7 @@ classDiagram
     class config { load_config() connect() }
     class server { web/server.py: /api/print /api/qr /api/unicode /api/printer }
     class Job { start() cancel }
-    class browser { app.js render.js raster.js search.js vars.js }
+    class browser { app.js render.js raster.js search.js vars.js history.js }
     main --> render : label-sized 1-bit image
     main --> config
     config --> Printer : tprint.toml bt_address, else USB

@@ -79,3 +79,10 @@
 - **QR prefetch**: `missing()` checks every element instead of stopping at the first gap, so one
   pass starts all QR fetches for a print run; a batch of numbered QR labels then waits for one
   round of requests, not one per label.
+- **Undo by snapshots**: every edit already ends in `save()`, so the history records a copy of
+  the whole batch there instead of per-action inverse code that a new action could forget. The
+  copy shares strings, so image data URLs are not duplicated per step; unchanged states (a
+  selection, a QR arriving) add nothing, and the preview `row` is ignored. Records in the same
+  group (one field, one element's arrow nudges) under 1 s apart merge into one step; a drag is
+  not recorded while it moves, only on pointerup. Text boxes keep the browser's own Ctrl+Z.
+  The history is in memory only and starts empty on reload.

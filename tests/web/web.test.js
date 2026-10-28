@@ -2,6 +2,7 @@ import {describe, expect, test} from "bun:test";
 import {
     compositeLayer, ditherFS, grayFromRGBA, qrScale, rotateCCW, threshold, wrapWords,
 } from "../../web/static/raster.js";
+import {clone, EditHistory, same} from "../../web/static/history.js";
 import {rotateElement} from "../../web/static/render.js";
 import {buildIndex, mostUsed, search} from "../../web/static/search.js";
 import {fill, fillElement, instances, labelCount, parseTable, varsFor} from "../../web/static/vars.js";
@@ -166,5 +167,90 @@ describe("vars", () => {
         expect(instances(label("id\n1", 0, "{n}"), now)).toEqual([]);
         expect(labelCount(label("id\n1\n2\n3", 2, ""))).toBe(6);
         expect(labelCount(label("", 2, ""))).toBe(2);
+    });
+});
+
+describe("history", () => {
+    const doc = (text, row = 0) => ({labels: [{id: "a", row, elements: [{id: "e", text}]}]});
+    const make = () => new EditHistory(doc("x"), {sel: null}, {skip: new Set(["row"])});
+
+    test("clone copies structure and shares strings", () => {
+        const a = {s: "data:" + "x".repeat(100), list: [{n: 1}]};
+        const b = clone(a);
+        b.list[0].n = 2;
+        expect(a.list[0].n).toBe(1);
+        expect(b.s).toBe(a.s);
+        expect(same(a, clone(a))).toBe(true);
+        expect(same({a: 1, row: 1}, {a: 1, row: 2}, new Set(["row"]))).toBe(true);
+        expect(same({a: 1}, {a: 1, b: undefined})).toBe(false);
+        expect(same([1, 2], {0: 1, 1: 2})).toBe(false);
+    });
+
+    test("undo and redo walk the steps and return fresh copies", () => {
+        const h = make();
+        expect(h.canUndo).toBe(false);
+        expect(h.record(doc("y"), {sel: "e"}, null, 0)).toBe(true);
+        expect(h.record(doc("z"), {sel: "e"}, null, 10)).toBe(true);
+        const u = h.undo();
+        expect(u.state.labels[0].elements[0].text).toBe("y");
+        u.state.labels[0].elements[0].text = "mutated";
+        expect(h.undo().state.labels[0].elements[0].text).toBe("x");
+        expect(h.undo()).toBe(null);
+        expect(h.redo().state.labels[0].elements[0].text).toBe("y");
+        expect(h.redo().state.labels[0].elements[0].text).toBe("z");
+        expect(h.canRedo).toBe(false);
+    });
+
+    test("unchanged and skipped-key records add no step", () => {
+        const h = make();
+        expect(h.record(doc("x"), {sel: "e"})).toBe(false);
+        expect(h.record(doc("x", 3), {sel: "e"})).toBe(false);
+        expect(h.canUndo).toBe(false);
+    });
+
+    test("a group merges within the window only", () => {
+        const h = make();
+        h.record(doc("a"), {}, "e:text", 0);
+        h.record(doc("ab"), {}, "e:text", 500);
+        h.record(doc("abc"), {}, "e:text", 1400);
+        h.record(doc("abcd"), {}, "e:text", 3000);
+        expect(h.undo().state.labels[0].elements[0].text).toBe("abc");
+        expect(h.undo().state.labels[0].elements[0].text).toBe("x");
+    });
+
+    test("a merge back to the previous state drops the step", () => {
+        const h = make();
+        h.record(doc("y"), {}, null, 0);
+        h.record(doc("yz"), {}, "e:text", 100);
+        h.record(doc("y"), {}, "e:text", 200);
+        expect(h.undo().state.labels[0].elements[0].text).toBe("x");
+    });
+
+    test("undo restores the view from before the change, redo the one after", () => {
+        const h = make();
+        h.record(doc("x"), {sel: "e"}); // selection change, no step
+        h.record(doc("gone"), {sel: null});
+        expect(h.undo().view).toEqual({sel: "e"});
+        expect(h.redo().view).toEqual({sel: null});
+    });
+
+    test("a new edit after undo drops the redo steps; the limit drops the oldest", () => {
+        const h = new EditHistory(doc("0"), {}, {limit: 3});
+        for (const t of ["1", "2", "3"]) h.record(doc(t), {});
+        h.undo();
+        h.record(doc("new"), {});
+        expect(h.canRedo).toBe(false);
+        expect(h.undo().state.labels[0].elements[0].text).toBe("2");
+        expect(h.undo().state.labels[0].elements[0].text).toBe("1");
+        expect(h.canUndo).toBe(false);
+    });
+
+    test("an undo ends the group, so the next edit is its own step", () => {
+        const h = make();
+        h.record(doc("a"), {}, "g", 0);
+        h.undo();
+        h.record(doc("b"), {}, "g", 10);
+        h.record(doc("bc"), {}, "g", 20);
+        expect(h.undo().state.labels[0].elements[0].text).toBe("x");
     });
 });

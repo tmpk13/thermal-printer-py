@@ -1,5 +1,6 @@
 import {HEAD_DOTS, DOTS_PER_MM} from "./raster.js";
 import {missing, onAsset, paint, printPNG, renderBits, rotateElement, whenReady} from "./render.js";
+import {EditHistory} from "./history.js";
 import {buildIndex, mostUsed, search} from "./search.js";
 import {BUILTINS, instances, labelCount, parseTable, tableRows, varsFor} from "./vars.js";
 
@@ -50,6 +51,9 @@ const designMm = (lb = label()) => (lb.rotate ? [lb.h_mm, lb.w_mm] : [lb.w_mm, l
 const round = (v, step = 0.125) => Math.round(v / step) * step;
 // Rendered as the row picked for preview prints.
 const draw = (lb) => renderBits(lb, varsFor(lb, lb.row || 0));
+const viewNow = () => ({label: label().id, sel: selId});
+// The previewed row is a view setting, not an edit.
+const edits = new EditHistory(batch, viewNow(), {skip: new Set(["row"])});
 
 let saveTimer = 0;
 function saveNow() {
@@ -58,9 +62,12 @@ function saveNow() {
     if (!store.set(STORE, batch)) setMessage("Could not save to browser storage (too big?). Export to keep it.", true);
 }
 
-function save() {
+// Every edit passes through here. Edits sharing a group (one field, one element's nudges)
+// in quick succession undo as one step; a drag records once, when it ends.
+function save(group = null) {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(saveNow, 300);
+    if (!drag && edits.record(batch, viewNow(), group)) updateUndoButtons();
 }
 
 // A pending debounced save would be lost if the tab closes or reloads first.
@@ -79,7 +86,7 @@ const view = $("#view");
 const overlay = $("#overlay");
 const stage = $("#stage");
 
-function renderView() {
+function renderView(group = null) {
     const lb = label();
     const out = draw(lb);
     paint(view, out);
@@ -116,7 +123,7 @@ function renderView() {
     if (thumb) paint(thumb, out);
     $("#dims").textContent = `${out.w} x ${out.h} dots`;
     syncGeometryInputs();
-    save();
+    save(group);
 }
 
 function renderAll() {
@@ -179,7 +186,11 @@ overlay.addEventListener("pointermove", (ev) => {
     renderView();
 });
 
-const endDrag = () => (drag = null);
+const endDrag = () => {
+    if (!drag) return;
+    drag = null;
+    save();
+};
 overlay.addEventListener("pointerup", endDrag);
 overlay.addEventListener("pointercancel", endDrag);
 
@@ -317,7 +328,7 @@ function renderProps() {
     title.textContent = {text: "Text", qr: "QR code", image: "Image", rect: "Box"}[el.type];
     const grid = document.createElement("div");
     grid.className = "fields";
-    for (const f of [...FIELDS[el.type], ...FIELDS.common]) grid.append(field(el, f, renderView));
+    for (const f of [...FIELDS[el.type], ...FIELDS.common]) grid.append(field(el, f, () => renderView(`${el.id}:${f[0]}`)));
     const actions = document.createElement("div");
     actions.className = "row";
     const btn = (text, fn) => {
@@ -409,15 +420,15 @@ function renderLabelForm() {
 $("#label-name").oninput = (ev) => {
     label().name = ev.target.value;
     $(`.card[data-id="${label().id}"] .name`).textContent = label().name;
-    save();
+    save(`${label().id}:name`);
 };
 $("#label-w").oninput = (ev) => {
     label().w_mm = Math.min(MAX_W_MM, Math.max(1, Number(ev.target.value) || 1));
-    renderView();
+    renderView(`${label().id}:w_mm`);
 };
 $("#label-h").oninput = (ev) => {
     label().h_mm = Math.max(1, Number(ev.target.value) || 1);
-    renderView();
+    renderView(`${label().id}:h_mm`);
 };
 $("#label-rotate").onchange = (ev) => {
     label().rotate = ev.target.checked;
@@ -464,11 +475,11 @@ $("#vars-table").oninput = (ev) => {
     label().vars = ev.target.value;
     renderVarsInfo();
     updateCard(label());
-    renderView();
+    renderView(`${label().id}:vars`);
 };
 $("#vars-start").oninput = (ev) => {
     label().start = Math.floor(Number(ev.target.value) || 0);
-    renderView();
+    renderView(`${label().id}:start`);
 };
 for (const [id, d] of [["#row-prev", -1], ["#row-next", 1]]) {
     $(id).onclick = () => {
@@ -498,8 +509,8 @@ function renderBatch() {
         qty.oninput = () => {
             lb.copies = Math.max(0, Math.floor(Number(qty.value) || 0));
             updateTotal();
-            if (lb === label()) renderView(); // {n} and {total} depend on copies
-            else save();
+            if (lb === label()) renderView(`${lb.id}:copies`); // {n} and {total} depend on copies
+            else save(`${lb.id}:copies`);
         };
         card.onclick = (ev) => {
             const act = ev.target.dataset.act;
@@ -566,6 +577,30 @@ $("#import-file").onchange = async (ev) => {
         setMessage(`Import failed: ${e.message}`, true);
     }
 };
+
+// ---------- undo ----------
+
+function updateUndoButtons() {
+    $("#undo").disabled = !edits.canUndo;
+    $("#redo").disabled = !edits.canRedo;
+}
+
+function undoRedo(redo) {
+    const step = redo ? edits.redo() : edits.undo();
+    if (!step) return;
+    const rows = new Map(batch.labels.map((lb) => [lb.id, lb.row]));
+    batch = step.state;
+    for (const lb of batch.labels) if (rows.has(lb.id)) lb.row = rows.get(lb.id);
+    const i = batch.labels.findIndex((lb) => lb.id === step.view.label);
+    cur = i >= 0 ? i : Math.min(cur, batch.labels.length - 1);
+    selId = label().elements.some((e) => e.id === step.view.sel) ? step.view.sel : null;
+    $("#density").value = batch.density;
+    renderAll();
+    updateUndoButtons();
+}
+
+$("#undo").onclick = () => undoRedo(false);
+$("#redo").onclick = () => undoRedo(true);
 
 // ---------- printer ----------
 
@@ -741,6 +776,13 @@ async function loadUnicode() {
 // ---------- keyboard ----------
 
 document.addEventListener("keydown", (ev) => {
+    const k = ev.key.toLowerCase();
+    if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && (k === "z" || k === "y")) {
+        // Text boxes keep the browser's own undo while typing.
+        if (ev.target.matches("textarea, input:not([type]), input[type=text], input[type=search]")) return;
+        ev.preventDefault();
+        return undoRedo(k === "y" || ev.shiftKey);
+    }
     if (ev.target.closest("input, textarea, select")) return;
     const el = selected();
     if (ev.key === "Escape") return selectEl(null);
@@ -750,7 +792,7 @@ document.addEventListener("keydown", (ev) => {
     if (moves[ev.key]) {
         el.x = round(el.x + moves[ev.key][0]);
         el.y = round(el.y + moves[ev.key][1]);
-        renderView();
+        renderView(`${el.id}:nudge`);
     } else if (ev.key === "Delete" || ev.key === "Backspace") {
         deleteEl();
     } else if (ev.key === "d" && (ev.ctrlKey || ev.metaKey)) {
@@ -783,6 +825,7 @@ $("#theme").onclick = () => {
 // ---------- start ----------
 
 renderAll();
+updateUndoButtons();
 renderMostUsed();
 refreshPrinter();
 loadUnicode();
