@@ -66,3 +66,7 @@
   now blurs a focused input first.
 - **Save flush**: batch saves are debounced 300 ms; a pending save is flushed on `pagehide` and
   when the tab is hidden, otherwise a reload right after an edit dropped it.
+- **Resize handles on top**: handles live in their own overlay layer, drawn after every element
+  box, rather than inside the selected box; otherwise a later element's box covered them and a
+  click on a handle selected that element instead. The selected box itself is not raised, so
+  elements inside it (text in a border box) stay clickable.

@@ -66,6 +66,14 @@ with sync_playwright() as p:
     msg = pg.inner_text("#message")
     pg.reload(); pg.wait_for_selector(".card")
     cards = pg.locator(".card").count()
+    # Handles of an element sent behind another must still be grabbable.
+    pg.click("#new-label"); pg.click("#add-rect"); pg.click("#add-text")
+    pg.click("text=Back")
+    w_before = float(pg.input_value("#props [data-key=w]"))
+    hb = pg.locator(".handle.se").bounding_box()
+    hx, hy = hb["x"] + hb["width"] / 2, hb["y"] + hb["height"] / 2
+    pg.mouse.move(hx, hy); pg.mouse.down(); pg.mouse.move(hx - 60, hy); pg.mouse.up()
+    covered = (pg.locator("#props h3").inner_text(), w_before, float(pg.input_value("#props [data-key=w]")))
     pg.emulate_media(color_scheme="dark"); pg.screenshot(path=f"{OUT}/dark.png")
     b.close()
 assert not errors, errors
@@ -75,5 +83,6 @@ assert msg == "Printed 4 labels", msg
 assert printed == [((320, 240), 4)] * 4, printed  # rotated label still prints 40 mm across
 assert rot_dims == ("30", "27") and rot_label == "Rotate (90)", (rot_dims, rot_label)
 assert (rot_back, rot_final) == ("Rotate (270)", "Rotate (90)"), (rot_back, rot_final)
+assert covered[0] == "Text" and covered[2] < covered[1], covered
 assert cards == 2, "batch not restored after reload"
 print(f"ok, output in {OUT}")

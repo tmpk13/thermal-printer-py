@@ -83,24 +83,32 @@ function renderView() {
     const [wmm, hmm] = designMm(lb);
     stage.style.setProperty("--aspect", `${out.w} / ${out.h}`);
     stage.style.setProperty("--ratio", String(out.w / out.h));
-    overlay.replaceChildren(...lb.elements.map((el) => {
+    const place = (div, el) => Object.assign(div.style, {
+        left: `${(el.x / wmm) * 100}%`, top: `${(el.y / hmm) * 100}%`,
+        width: `${(el.w / wmm) * 100}%`, height: `${(el.h / hmm) * 100}%`,
+    });
+    const boxes = lb.elements.map((el) => {
         const box = document.createElement("div");
         box.className = "box" + (el.id === selId ? " selected" : "");
         box.dataset.id = el.id;
-        Object.assign(box.style, {
-            left: `${(el.x / wmm) * 100}%`, top: `${(el.y / hmm) * 100}%`,
-            width: `${(el.w / wmm) * 100}%`, height: `${(el.h / hmm) * 100}%`,
-        });
-        if (el.id === selId) {
-            for (const dir of ["nw", "ne", "sw", "se"]) {
-                const hd = document.createElement("div");
-                hd.className = `handle ${dir}`;
-                hd.dataset.dir = dir;
-                box.append(hd);
-            }
-        }
+        place(box, el);
         return box;
-    }));
+    });
+    // Handles get their own layer above every box, so later elements never cover them.
+    const sel = selected();
+    if (sel) {
+        const frame = document.createElement("div");
+        frame.className = "handles";
+        place(frame, sel);
+        for (const dir of ["nw", "ne", "sw", "se"]) {
+            const hd = document.createElement("div");
+            hd.className = `handle ${dir}`;
+            hd.dataset.dir = dir;
+            frame.append(hd);
+        }
+        boxes.push(frame);
+    }
+    overlay.replaceChildren(...boxes);
     const thumb = $(`.card[data-id="${lb.id}"] canvas`);
     if (thumb) paint(thumb, out);
     $("#dims").textContent = `${out.w} x ${out.h} dots`;
@@ -129,7 +137,7 @@ let drag = null;
 overlay.addEventListener("pointerdown", (ev) => {
     // preventDefault below keeps focus where it was; release inputs so shortcuts reach the canvas.
     if (document.activeElement?.matches("input, textarea, select")) document.activeElement.blur();
-    const box = ev.target.closest(".box");
+    const box = ev.target.dataset.dir ? {dataset: {id: selId}} : ev.target.closest(".box");
     if (!box) {
         selectEl(null);
         return;

@@ -145,6 +145,7 @@ main {
     cursor: move;
 }
 .box.selected { outline: 0.125rem solid var(--blue); }
+.handles { position: absolute; pointer-events: none; z-index: 1; }
 .handle {
     position: absolute;
     width: 0.8em;
@@ -152,6 +153,7 @@ main {
     background: var(--blue);
     border: 0.125rem solid #fff;
     border-radius: 50%;
+    pointer-events: auto;
 }
 .handle.nw { left: -0.4em; top: -0.4em; cursor: nwse-resize; }
 .handle.se { right: -0.4em; bottom: -0.4em; cursor: nwse-resize; }
