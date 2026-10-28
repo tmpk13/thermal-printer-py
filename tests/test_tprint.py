@@ -165,3 +165,29 @@ def test_render_text_never_splits_words(monkeypatch):
                         lambda self, xy, text, **kw: (seen.append(text), real(self, xy, text, **kw)))
     tp.render_text("Supvan driver", 90, 240)
     assert seen == ["Supvan\ndriver"]
+
+
+def test_load_config_first_found(tmp_path):
+    missing, a, b = tmp_path / "none.toml", tmp_path / "a.toml", tmp_path / "b.toml"
+    a.write_text('bt_address = "A4:93:40:05:6A:13"\n')
+    b.write_text('bt_address = "00:00:00:00:00:00"\n')
+    assert tp.load_config([missing, a, b]) == {"bt_address": "A4:93:40:05:6A:13"}
+    assert tp.load_config([missing]) == {}
+
+
+def test_connect_prefers_configured_bt_and_falls_back_to_usb(monkeypatch):
+    made = []
+
+    class Bt:
+        def __init__(self, addr):
+            made.append(("bt", addr))
+            if addr == "down":
+                raise OSError("host is down")
+
+    monkeypatch.setattr(tp, "BtPrinter", Bt)
+    monkeypatch.setattr(tp, "UsbPrinter", lambda: made.append(("usb",)) or "usb")
+    assert isinstance(tp.connect(config={"bt_address": "up"}), Bt)
+    assert tp.connect(config={"bt_address": "down"}) == "usb"
+    assert tp.connect(config={}) == "usb"
+    tp.connect("explicit", config={"bt_address": "up"})
+    assert made == [("bt", "up"), ("bt", "down"), ("usb",), ("usb",), ("bt", "explicit")]

@@ -1,0 +1,4 @@
+# Copy to tprint.toml (next to tprint.py) or ~/.config/tprint/tprint.toml.
+# The address is tried first when no -b/TPRINT_BT is given; USB is used if it is unreachable.
+# Find it with: mise run scan
+bt_address = "A4:93:40:05:6A:13"

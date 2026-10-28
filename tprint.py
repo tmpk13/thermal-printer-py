@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run -q --script
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.11"
 # dependencies = ["pillow", "segno"]
 # [tool.uv]
 # python-preference = "only-system"  # uv-managed Pythons lack Bluetooth sockets
@@ -17,6 +17,8 @@ import struct
 import sys
 import textwrap
 import time
+import tomllib
+from pathlib import Path
 
 import segno
 from PIL import Image, ImageDraw, ImageFont
@@ -157,6 +159,9 @@ class Printer:
     def send_block(self, blk: bytes):
         raise NotImplementedError
 
+    def close(self):
+        pass
+
     def status(self) -> dict:
         r = self.cmd(CMD_STATUS)[self.ST:self.ST + 4]
         if len(r) < 4:
@@ -205,6 +210,9 @@ class UsbPrinter(Printer):
     def __init__(self, path: str | None = None):
         self.fd = os.open(path or find_hidraw(), os.O_RDWR | os.O_NONBLOCK)
 
+    def close(self):
+        os.close(self.fd)
+
     def _write(self, data: bytes):
         # Leading 0x00 is the report ID; without it hidraw eats a leading zero byte.
         os.write(self.fd, b"\0" + data.ljust(64, b"\0"))
@@ -246,8 +254,15 @@ class BtPrinter(Printer):
         self.sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM,  # pyright: ignore
                                   socket.BTPROTO_RFCOMM)  # pyright: ignore
         self.sock.settimeout(10)
-        self.sock.connect((addr, channel))
+        try:
+            self.sock.connect((addr, channel))
+        except OSError:
+            self.sock.close()
+            raise
         self.buf = b""
+
+    def close(self):
+        self.sock.close()
 
     def _drain(self):
         self.sock.setblocking(False)
@@ -302,6 +317,30 @@ class BtPrinter(Printer):
 def debug(tag: str, data: bytes):
     if os.environ.get("TPRINT_DEBUG"):
         print(f"{time.monotonic():.3f} {tag} {data[:48].hex(' ')}", file=sys.stderr)
+
+
+# Optional config, first found wins: bt_address = "AA:BB:CC:DD:EE:FF"
+CONFIG_PATHS = (Path(__file__).with_name("tprint.toml"), Path("~/.config/tprint/tprint.toml"))
+
+
+def load_config(paths=CONFIG_PATHS) -> dict:
+    for p in map(Path, paths):
+        if (p := p.expanduser()).is_file():
+            with open(p, "rb") as f:
+                return tomllib.load(f)
+    return {}
+
+
+def connect(bt: str | None = None, config: dict | None = None) -> Printer:
+    """Explicit Bluetooth address, else the configured one if reachable, else USB."""
+    if bt:
+        return BtPrinter(bt)
+    if addr := (load_config() if config is None else config).get("bt_address"):
+        try:
+            return BtPrinter(addr)
+        except OSError as e:
+            print(f"Bluetooth {addr}: {e}; trying USB", file=sys.stderr)
+    return UsbPrinter()
 
 
 def find_hidraw() -> str:
@@ -397,22 +436,22 @@ def main():
     ap.add_argument("-r", "--rotate", action="store_true", help="run content along the feed")
     ap.add_argument("-p", "--preview", help="save the rendered label as PNG instead of printing")
     ap.add_argument("-b", "--bt", metavar="ADDR", default=os.environ.get("TPRINT_BT"),
-                    help="print over Bluetooth to this address (env TPRINT_BT)")
+                    help="print over Bluetooth to this address (env TPRINT_BT, else bt_address in tprint.toml)")
     ap.add_argument("--status", action="store_true", help="show printer and label status")
     a = ap.parse_args()
 
     printer = None
 
-    def connect() -> Printer:
+    def link() -> Printer:
         nonlocal printer
-        printer = printer or (BtPrinter(a.bt) if a.bt else UsbPrinter())
+        printer = printer or connect(a.bt)
         return printer
 
     if a.status:
-        p = connect()
+        p = link()
         print(p.status(), "label %dx%d mm" % p.label_mm())
         return
-    w_mm, h_mm = map(int, a.size.lower().split("x")) if a.size else connect().label_mm()
+    w_mm, h_mm = map(int, a.size.lower().split("x")) if a.size else link().label_mm()
     w_mm, h_mm = min(w_mm or 40, HEAD_DOTS // DOTS_PER_MM), h_mm or 30
     w, h = w_mm * DOTS_PER_MM, h_mm * DOTS_PER_MM
     if a.rotate:
@@ -429,7 +468,7 @@ def main():
     if a.preview:
         img.save(a.preview)
     else:
-        connect().print_image(img, a.density)
+        link().print_image(img, a.density)
 
 
 if __name__ == "__main__":
