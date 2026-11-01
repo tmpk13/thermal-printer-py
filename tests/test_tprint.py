@@ -123,7 +123,7 @@ def test_print_flow_order():
 def test_render_qr_modules_match_matrix():
     import segno
     img = tp.render_qr("https://example.com", 224)
-    qr = segno.make("https://example.com", error="m")
+    qr = segno.make_qr("https://example.com", error="m")
     m = qr.symbol_size(border=0)[0]
     scale = img.width // (m + 4)
     assert img.width == img.height == (m + 4) * scale and scale >= 2

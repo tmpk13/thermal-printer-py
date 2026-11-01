@@ -32,6 +32,9 @@
   dots per module (nearest neighbor) so modules stay crisp; under 2 dots per module is refused.
   Placed left of the text on wide labels, above it on tall ones. Decoded with OpenCV from the
   preview, and the printed 40x30 label scans with a phone.
+- **Regular QR only**: `segno.make` silently picks Micro QR whenever the data fits one
+  ("Box 12" became a 15-module M3, any URL under ~20 bytes too), and phone cameras, ZXing and
+  ML Kit do not read Micro QR. Both the CLI and the server call `segno.make_qr`.
 - **Text wrapping**: text without explicit line breaks is tried at every wrap width (never
   splitting words) and the layout with the largest font wins.
 - **Config file**: optional `tprint.toml` (next to `tprint.py`, then `~/.config/tprint/`) with

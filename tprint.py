@@ -388,7 +388,7 @@ def render_text(text: str, w: int, h: int, margin: int = 8) -> Image.Image:
 
 def render_qr(data: str, side: int) -> Image.Image:
     """QR code (2-module quiet zone) at a whole number of dots per module, at most side wide."""
-    qr = segno.make(data, error="m")
+    qr = segno.make_qr(data, error="m")  # never Micro QR: phones mostly cannot scan it
     m = qr.symbol_size(border=0)[0]
     n = m + 4
     scale = side // n

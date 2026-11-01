@@ -49,7 +49,7 @@ def unicode_index() -> list[list]:
 
 def qr_matrix(data: str, error: str = "m") -> list[str]:
     """QR modules as rows of '0'/'1' (1 = dark), no quiet zone."""
-    qr = segno.make(data, error=error)
+    qr = segno.make_qr(data, error=error)  # never Micro QR: phones mostly cannot scan it
     return ["".join("1" if v else "0" for v in row) for row in qr.matrix]
 
 

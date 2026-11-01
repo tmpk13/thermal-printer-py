@@ -101,8 +101,14 @@ def test_printer_reports_label_and_closes(srv):
 
 def test_qr_matches_segno(srv):
     rows = json.loads(get(srv.base, "/api/qr?data=hello&error=q")[2])["rows"]
-    want = segno.make("hello", error="q").matrix
+    want = segno.make_qr("hello", error="q").matrix
     assert rows == ["".join("1" if v else "0" for v in r) for r in want]
+
+
+def test_short_qr_data_is_not_micro_qr(srv):
+    # segno.make would pick a 15-module Micro QR here, which phone cameras do not read.
+    rows = json.loads(get(srv.base, "/api/qr?data=Box%2012&error=m")[2])["rows"]
+    assert len(rows) == 21
 
 
 def test_unicode_index_is_gzipped_and_filtered(srv):
