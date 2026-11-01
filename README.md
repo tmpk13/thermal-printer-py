@@ -47,6 +47,18 @@ Built in: `{n}` (running number from Start), `{copy}`, `{row}`, `{total}`, `{dat
 
 Ctrl+Z / Ctrl+Shift+Z (or the Undo/Redo buttons) undo and redo edits for the session.
 
+## Phone app (Android)
+
+```sh
+mise run apk          # android/build/tprint.apk; needs ANDROID_HOME (build-tools 34, android-33), JDK
+mise run apk-install  # adb install -r
+```
+
+The same designer in a WebView, printing straight from the phone over Bluetooth; no computer
+involved. Allow "Nearby devices" on first start. It finds the printer by name (`T0...`, paired
+or not) and remembers it; the printer chip in the header checks again. Android 8 or newer.
+iOS cannot do Bluetooth Classic serial, so there is no iPhone version.
+
 ## Architecture
 
 ```mermaid
@@ -74,6 +86,16 @@ classDiagram
     Printer --> compress : LZMA blocks
     UsbPrinter --> hidraw : 64 B reports
     BtPrinter --> rfcomm : 7E 5A frames, ch 1
+    class MainActivity { android: WebView, assets, file pickers }
+    class Api { /api/printer /api/job /api/qr, print, cancel }
+    class Bluetooth { connect() saved, paired, discovered }
+    class JavaBtPrinter { BtPrinter.java Raster.java Qr.java }
+    browser --> MainActivity : GET api/* intercepted
+    browser --> Api : POST via TPrintNative bridge
+    MainActivity --> Api
+    Api --> Bluetooth
+    Bluetooth --> JavaBtPrinter : RFCOMM socket
+    JavaBtPrinter ..> BtPrinter : same protocol, tested against it
 ```
 
 Protocol reference: [heeen/supvan-cups](https://github.com/heeen/supvan-cups) (MIT).

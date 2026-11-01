@@ -3,3 +3,4 @@ __pycache__/
 *.png
 tprint.toml
 node_modules/
+android/build/

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A label with a QR code and two lines of text, inside the adaptive icon safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+        android:width="108dp" android:height="108dp"
+        android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#fdf6e3"
+          android:pathData="M34,38h40a4,4 0 0 1 4,4v24a4,4 0 0 1 -4,4h-40a4,4 0 0 1 -4,-4v-24a4,4 0 0 1 4,-4z" />
+    <path android:fillColor="#002b36" android:fillType="evenOdd"
+          android:pathData="M35,43h14v14h-14z M37.5,45.5v9h9v-9z M40,48h4v4h-4z" />
+    <path android:fillColor="#002b36"
+          android:pathData="M53,45h20v3.5h-20z M53,51.5h20v3.5h-20z M53,58h13v3.5h-13z" />
+</vector>

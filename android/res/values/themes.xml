@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Solarized light; the WebView takes prefers-color-scheme from this theme. -->
+    <style name="Theme" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/bar</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+        <item name="android:windowLightStatusBar">@bool/light</item>
+    </style>
+    <color name="bg">#fdf6e3</color>
+    <color name="bar">#eee8d5</color>
+    <color name="icon_bg">#268bd2</color>
+    <bool name="light">true</bool>
+</resources>

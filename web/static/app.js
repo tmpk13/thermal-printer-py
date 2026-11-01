@@ -9,6 +9,7 @@ const MAX_W_MM = HEAD_DOTS / DOTS_PER_MM;
 const SNAP_MM = 0.5;
 const STORE = "tprint.batch";
 const USE_STORE = "tprint.unicodeUse";
+const native = window.TPrintNative; // set by the Android app, which prints over Bluetooth
 // Shown in the most-used bar until real use fills it: check, ballot X, degree, ohm, micro,
 // plus-minus, warning, high voltage, arrows, bullet, star, heart, ballot boxes, recycling.
 const DEFAULT_CHARS = [0x2713, 0x2717, 0xb0, 0x2126, 0xb5, 0xb1, 0x26a0, 0x26a1, 0x2190,
@@ -552,6 +553,10 @@ $("#new-label").onclick = () => {
 };
 
 $("#export").onclick = () => {
+    if (native) { // a WebView cannot download a blob URL
+        native.saveFile("labels.json", "application/json", JSON.stringify(batch, null, 1));
+        return;
+    }
     const blob = new Blob([JSON.stringify(batch, null, 1)], {type: "application/json"});
     const a = Object.assign(document.createElement("a"), {
         href: URL.createObjectURL(blob), download: "labels.json",
@@ -604,6 +609,18 @@ $("#redo").onclick = () => undoRedo(true);
 
 // ---------- printer ----------
 
+// POST JSON to the server. Inside the phone app the api is answered natively, and since a
+// WebView never shows request bodies to the app, posts go through its bridge object.
+async function post(path, body) {
+    if (!native) {
+        return fetch(path, {method: "POST", headers: {"Content-Type": "application/json"},
+                            body: JSON.stringify(body)});
+    }
+    const r = JSON.parse(native.post(path, JSON.stringify(body)));
+    return new Response(JSON.stringify(r.body), {status: r.status,
+                                                 headers: {"Content-Type": "application/json"}});
+}
+
 async function refreshPrinter() {
     const chip = $("#printer");
     chip.textContent = "Checking printer...";
@@ -646,11 +663,7 @@ async function printLabels(labels) {
             await whenReady(lb, vars);
             items.push({png: await printPNG(lb, vars), copies});
         }
-        const r = await fetch("api/print", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({density: batch.density, labels: items}),
-        });
+        const r = await post("api/print", {density: batch.density, labels: items});
         const j = await r.json();
         if (!r.ok) throw new Error(j.error);
         pollJob();
@@ -686,7 +699,7 @@ async function pollJob() {
 
 $("#print-batch").onclick = () => printLabels(batch.labels);
 $("#print-one").onclick = () => printLabels([label()]);
-$("#cancel").onclick = () => fetch("api/job/cancel", {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"});
+$("#cancel").onclick = () => post("api/job/cancel", {});
 
 // ---------- unicode panel ----------
 

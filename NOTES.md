@@ -89,3 +89,35 @@
   group (one field, one element's arrow nudges) under 1 s apart merge into one step; a drag is
   not recorded while it moves, only on pointerup. Text boxes keep the browser's own Ctrl+Z.
   The history is in memory only and starts empty on reload.
+- **Phone app shape**: the designer's own files in an Android WebView, served from the APK under
+  `https://appassets.androidplatform.net/` (a reserved name, never resolved), so the page is a
+  secure context with stable localStorage and needs no INTERNET permission. Plain Java built by
+  `android/build.sh` with aapt2, javac, d8 and apksigner, no Gradle; the APK is about 320 KB.
+  Bluetooth Classic SPP rules out iOS (no RFCOMM without MFi) and Web Bluetooth (BLE only).
+- **api in the app**: GETs are answered in `shouldInterceptRequest`, but a WebView never hands
+  the app a request body, so `app.js` posts through `window.TPrintNative.post()` when that
+  exists and wraps the reply in a `Response`. Export goes through `saveFile()` the same way: a
+  WebView cannot download a blob URL. The Unicode index is generated at build time with the
+  server's own `unicode_index()`.
+- **Protocol port**: `Raster.java` and `BtPrinter.java` mirror `tprint.py` and avoid Android
+  classes, so `tests/test_android.py` runs them on the desktop JVM: head bytes and print buffers
+  are compared byte for byte, and a fake printer on a socket receives both the Python and Java
+  print flows and compares the command sequence and the decompressed data. The fake only caught
+  a data-frame checksum bug once a noisy label made blocks span several frames (frame index 0
+  hides an off-by-one in the summed range).
+- **LZMA in Java**: xz-java's `LZMAOutputStream` with a known input size writes the alone header
+  with that size and no end marker. Compressed bytes differ from liblzma's, so the test decodes
+  each block with liblzma's LZMA1EXT decoder told the exact size and no marker, and requires
+  every input byte consumed.
+- **d8 and javac 21**: javac 21 gives every non-static inner class constructor a nameless
+  `MethodParameters` entry for the outer instance, and d8 8.2 (build-tools 34) crashes on it with
+  an NPE. Nested classes in the app are all static; xz-java 1.10 has the same entries, so 1.9.
+- **QR in the app**: Nayuki's qrcodegen picks the same version and error level as
+  `segno.make_qr` (with level boost) but a different mask and padding, so modules differ. Both
+  scan; the test decodes the Java output with zxing-cpp instead of comparing modules.
+- **RFCOMM on Android**: the printer listens on channel 1; the app asks for the SPP UUID first
+  (public API, needs an SDP record) and falls back to the hidden `createInsecureRfcommSocket(1)`.
+  `BluetoothSocket` streams have no read timeout, so the reader polls `available()` every 5 ms
+  with the same 2 s timeout as the Python socket. Printer choice: last address that worked,
+  then paired devices named `T0<digit>`, then a 12 s discovery (`BLUETOOTH_SCAN` with
+  `neverForLocation`; location only on Android 11 and older).

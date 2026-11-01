@@ -105,6 +105,32 @@ with sync_playwright() as p:
     pg.mouse.move(hx, hy); pg.mouse.down(); pg.mouse.move(hx - 60, hy); pg.mouse.up()
     covered = (pg.locator("#props h3").inner_text(), w_before, float(pg.input_value("#props [data-key=w]")))
     pg.emulate_media(color_scheme="dark"); pg.screenshot(path=f"{OUT}/dark.png")
+    # The phone app's path: posts and exports go through window.TPrintNative, here a stand-in
+    # that forwards posts to the same server synchronously, as the app's bridge answers.
+    app = b.new_page(viewport={"width": 400, "height": 800})
+    app.on("pageerror", lambda e: errors.append(str(e)))
+    app.add_init_script("""
+        window.posts = []; window.saved = [];
+        window.TPrintNative = {
+            post(path, body) {
+                posts.push(path);
+                const x = new XMLHttpRequest();
+                x.open("POST", path, false);
+                x.setRequestHeader("Content-Type", "application/json");
+                x.send(body);
+                return JSON.stringify({status: x.status, body: JSON.parse(x.responseText)});
+            },
+            saveFile(name, mime, text) { saved.push([name, mime, JSON.parse(text).labels.length]); },
+        };
+    """)
+    app.goto(url)
+    app.wait_for_selector(".chip.ok")
+    app.click("#print-one")
+    app.wait_for_function("document.querySelector('#message').textContent.startsWith('Printed')", timeout=15000)
+    app_msg = app.inner_text("#message")
+    app.click("#export")
+    bridge = app.evaluate("[posts, saved]")
+    app.screenshot(path=f"{OUT}/phone.png", full_page=True)
     b.close()
 assert not errors, errors
 assert ord(first) == 0x2713 and text == "Box 12 \u2713", (first, text)
@@ -115,9 +141,11 @@ assert msg == "Printed 4 labels", msg
 assert printed[:4] == [((320, 240), 4)] * 4, printed  # rotated label still prints 40 mm across
 assert qr_data == "id-{name}{n}", qr_data
 assert rows_ui == ["Row 1 of 2", "2 rows", "Row 2 of 2"], rows_ui
-assert len(printed) == 10 and len(set(hashes[4:])) == 6, (printed, hashes)
+assert len(set(hashes[4:10])) == 6, (printed, hashes)
 assert rot_dims == ("30", "27") and rot_label == "Rotate (90)", (rot_dims, rot_label)
 assert (rot_back, rot_final) == ("Rotate (270)", "Rotate (90)"), (rot_back, rot_final)
 assert covered[0] == "Text" and covered[2] < covered[1], covered
 assert cards == 2, "batch not restored after reload"
+assert app_msg == "Printed 1 label" and len(printed) == 11, (app_msg, printed)
+assert bridge == [["api/print"], [["labels.json", "application/json", 1]]], bridge
 print(f"ok, output in {OUT}")

@@ -82,6 +82,8 @@ main {
 }
 @media (max-width: 60em) {
     main { grid-template-columns: 1fr; }
+    /* Stacked panels scroll a long way on a phone; keep Print and the printer state in reach. */
+    header { position: sticky; top: 0; z-index: 2; }
 }
 .panel {
     background: var(--surface);

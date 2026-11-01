@@ -14,3 +14,5 @@
 - Substitution variables in the web designer: `{name}` from a per-label table (one label per
   row) and built-ins `{n}` `{copy}` `{row}` `{total}` `{date}` `{time}` in text and QR data
 - Undo/redo in the web designer (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y and toolbar buttons)
+- Android app: the web designer in a WebView, printing over Bluetooth from the phone; Java
+  protocol port tested against `tprint.py` on the JVM
